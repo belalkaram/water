@@ -8,6 +8,8 @@ export interface User {
   code: string;
   role: UserRole;
   active?: number;
+  home_center?: string;
+  assigned_centers?: string[];
 }
 
 export interface MonthlyPlan {

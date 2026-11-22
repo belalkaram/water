@@ -169,8 +169,20 @@ export const api = {
   getWorkers: (code: string): Promise<{ workers: User[] }> =>
     request('/api/workers', { method: 'GET' }, code),
 
-  createWorker: (code: string, name: string, workerCode: string) =>
-    request('/api/workers', { method: 'POST', body: JSON.stringify({ name, code: workerCode }) }, code),
+  createWorker: (code: string, w: { name: string; code: string; assigned_centers: string[] }) =>
+    request('/api/workers', { method: 'POST', body: JSON.stringify(w) }, code),
+
+  updateWorker: (code: string, id: string, w: { name: string; code: string; assigned_centers: string[] }) =>
+    request(`/api/workers/${id}`, { method: 'PUT', body: JSON.stringify(w) }, code),
+
+  deleteWorker: (code: string, id: string) =>
+    request(`/api/workers/${id}`, { method: 'DELETE' }, code),
+
+  previewMonthlyPlan: (code: string, month: string) =>
+    request(`/api/plans/monthly/preview?month=${encodeURIComponent(month)}`, { method: 'GET' }, code),
+
+  generateMonthlyPlan: (code: string, month: string) =>
+    request('/api/plans/generate-monthly', { method: 'POST', body: JSON.stringify({ month }) }, code),
 
   toggleWorker: (code: string, workerId: string) =>
     request(`/api/workers/${workerId}/toggle`, { method: 'PATCH' }, code),

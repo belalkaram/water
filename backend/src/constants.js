@@ -11,6 +11,12 @@ const COMPLIANCE_KEYS = [
   'sampling_point_accessible',
   'illegal_connection',
 ];
+// المدن الرسمية = أسماء ملفات الإكسيل العشرة فقط (لا تزيد ولا تنقص)
+const OFFICIAL_CENTERS = [
+  'أشمون', 'الباجور', 'الشهداء', 'بركة السبع', 'تلا',
+  'سرس الليان', 'شبين الكوم', 'قويسنا', 'قويسنا المنطقة الصناعية', 'منوف',
+];
+const REVISIT_MONTHS = 6;
 const RESERVATION_TTL_HOURS = Number(process.env.RESERVATION_TTL_HOURS || 6);
 
 const OUTCOME_LABELS = {
@@ -32,6 +38,7 @@ const COMPLIANCE_LABELS = {
 };
 
 module.exports = {
+  OFFICIAL_CENTERS, REVISIT_MONTHS,
   VISIT_OUTCOMES, VIOLATION_LEVELS, COMPLIANCE_ANSWERS, COMPLIANCE_KEYS,
   RESERVATION_TTL_HOURS, OUTCOME_LABELS, LEVEL_LABELS, COMPLIANCE_LABELS,
 };

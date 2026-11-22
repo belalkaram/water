@@ -44,3 +44,9 @@ export const LEVEL_COLORS: Record<ViolationLevel, { bg: string; fg: string }> = 
   major: { bg: '#FFEDD5', fg: '#C2410C' },
   critical: { bg: '#FEE2E2', fg: '#DC2626' },
 };
+
+// المدن الرسمية فقط (أسماء ملفات الإكسيل) — تطابق backend/src/constants.js
+export const OFFICIAL_CENTERS = [
+  'أشمون', 'الباجور', 'الشهداء', 'بركة السبع', 'تلا',
+  'سرس الليان', 'شبين الكوم', 'قويسنا', 'قويسنا المنطقة الصناعية', 'منوف',
+];

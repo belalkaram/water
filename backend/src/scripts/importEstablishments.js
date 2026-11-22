@@ -1,0 +1,172 @@
+// Usage: node src/scripts/importEstablishments.js [--dry-run] [--docs <dir>] [--today YYYY-MM-DD] [--through YYYY-MM]
+require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+const xlsx = require('xlsx');
+const { v4: uuidv4 } = require('uuid');
+const { initDb, queryAll, run } = require('../db');
+const { detectActivityType } = require('../utils/centerParser');
+const { generateMonthlyPlan } = require('../utils/monthlyPlan');
+const C = require('../constants');
+
+const args = process.argv.slice(2);
+const DRY = args.includes('--dry-run');
+const argVal = (k, d) => (args.includes(k) ? args[args.indexOf(k) + 1] : d);
+const DOCS = path.resolve(argVal('--docs', path.join(__dirname, '../../../docs')));
+const TODAY = argVal('--today', new Date().toISOString().slice(0, 10));
+const PLAN_MONTH = argVal('--through', '2026-12');
+
+// file-name keyword → official center (most specific first)
+const FILE_CENTER = [
+  ['المنطقة الصناعية', 'قويسنا المنطقة الصناعية'],
+  ['قويسنا', 'قويسنا'], ['اشمون', 'أشمون'], ['الباجور', 'الباجور'], ['الشهداء', 'الشهداء'],
+  ['بركة', 'بركة السبع'], ['تلا', 'تلا'], ['سرس', 'سرس الليان'], ['شبين', 'شبين الكوم'], ['منوف', 'منوف'],
+];
+
+const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+
+// Closed = permanently out of service / no sewer discharge.
+// "Closed during the visit" stays in (it must be revisited).
+function isClosed(status) {
+  const s = norm(status).toLowerCase();
+  if (!s) return false;
+  if (s.includes('اثناء') || (s.includes('مغلق') && s.includes('معاينة'))) return false;
+  if (s.includes('close')) return true;
+  if (s.includes('مغلق') || s.includes('غلق')) return true;
+  if (/تغير النشاط|تغيير النشاط|محطة غاز|الغاء|لا ?يوجد صرف|غير مخدوم|لم يتم التوصيل/.test(s)) return true;
+  return false;
+}
+
+function parseDate(v, issues, ctx) {
+  if (v === null || v === undefined || v === '') return '';
+  let d = null;
+  if (v instanceof Date) d = new Date(v.getTime() + 12 * 3600e3); // avoid xlsx timezone drift
+  else if (typeof v === 'number') d = new Date(Math.round((v - 25569) * 86400e3) + 12 * 3600e3);
+  if (!d || isNaN(d) || d.getUTCFullYear() < 2015 || d.getUTCFullYear() > 2100) {
+    issues.push(`${ctx}: تاريخ غير صالح (${String(v).slice(0, 30)}) — اعتُبر بدون تاريخ`);
+    return '';
+  }
+  const iso = d.toISOString().slice(0, 10);
+  if (iso > TODAY) {
+    issues.push(`${ctx}: تاريخ مستقبلي (${iso}) — اعتُبر بدون تاريخ`);
+    return '';
+  }
+  return iso;
+}
+
+function readFile(file, issues) {
+  const center = FILE_CENTER.find(([k]) => file.includes(k))?.[1];
+  if (!center) throw new Error('ملف غير معروف المدينة: ' + file);
+  const wb = xlsx.readFile(path.join(DOCS, file), { cellDates: true });
+  for (const sn of wb.SheetNames) {
+    const rows = xlsx.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null, raw: true });
+    const hi = rows.slice(0, 25).findIndex((r) => {
+      const t = r.map(norm).join('|');
+      return t.includes('الكود') && t.includes('حالة النشاط') && t.includes('مرور');
+    });
+    if (hi < 0) continue;
+    const H = {};
+    rows[hi].forEach((c, j) => { if (c) H[norm(c)] = j; });
+    const col = (...ks) => { for (const [h, j] of Object.entries(H)) if (ks.some((k) => h.includes(k))) return j; return -1; };
+    const ix = {
+      name: col('اسم'), addr: col('عنوان'), code: col('الكود'), status: col('حالة النشاط'), owner: col('صاحب'),
+      act: col('النشاط والمواد'), phone: col('وسيلة الاتصال'), last: col('مرور'), water: col('كمية المياه'), unit: col('وحدة المعالجة'),
+    };
+    const out = [];
+    for (let r = hi + 1; r < rows.length; r++) {
+      const row = rows[r];
+      const name = norm(row[ix.name]);
+      if (!name) continue;
+      const ctx = `${file} (سطر ${r + 1}) ${name}`;
+      const code = norm(row[ix.code]).toUpperCase();
+      if (!code) { issues.push(`${ctx}: بدون كود (ترويسة/تذييل صفحة وليست منشأة) — تم تجاهله`); continue; }
+      const status = norm(row[ix.status]);
+      if (!status) issues.push(`${ctx}: حالة النشاط فارغة — اعتُبرت مفتوحة`);
+      const actText = ix.act >= 0 ? norm(row[ix.act]) : '';
+      out.push({
+        code, name, center, status, closed: isClosed(status),
+        address: norm(row[ix.addr]), owner: norm(row[ix.owner]), phone: norm(row[ix.phone]),
+        activity: detectActivityType(`${name} ${actText}`) || 'أخرى',
+        last: parseDate(row[ix.last], issues, ctx),
+        water: norm(row[ix.water]), unit: norm(row[ix.unit]), file,
+      });
+    }
+    return { sheet: sn, rows: out };
+  }
+  throw new Error('لم يتم العثور على شيت المنشآت في ' + file);
+}
+
+(async () => {
+  const issues = [];
+  const files = fs.readdirSync(DOCS).filter((f) => /\.xls[xm]?$/i.test(f) && !f.startsWith('~$'));
+  const all = [];
+  console.log(`📂 ${files.length} ملف في ${DOCS}${DRY ? ' (dry-run)' : ''}`);
+  for (const f of files) {
+    const { sheet, rows } = readFile(f, issues);
+    const open = rows.filter((r) => !r.closed);
+    console.log(`  ${rows[0].center.padEnd(24)} شيت "${sheet}": ${rows.length} صف → ${open.length} مفتوح / ${rows.length - open.length} مغلق`);
+    all.push(...rows);
+  }
+  const seen = new Set();
+  for (const r of all) {
+    if (seen.has(r.code)) issues.push(`كود مكرر: ${r.code} (${r.file})`);
+    seen.add(r.code);
+  }
+  const open = all.filter((r) => !r.closed);
+  const closedStatuses = {};
+  all.filter((r) => r.closed).forEach((r) => { closedStatuses[r.status] = (closedStatuses[r.status] || 0) + 1; });
+  console.log(`\nالإجمالي: ${all.length} | مفتوح (يُستورد): ${open.length} | مغلق (يُستبعد): ${all.length - open.length}`);
+  console.log('الحالات المستبعدة:', JSON.stringify(closedStatuses));
+  const keptOdd = {};
+  open.filter((r) => r.status.toLowerCase() !== 'open').forEach((r) => { keptOdd[r.status || '(فارغ)'] = (keptOdd[r.status || '(فارغ)'] || 0) + 1; });
+  console.log('حالات غير Open لكن مُدرجة:', JSON.stringify(keptOdd));
+  if (open.some((r) => !C.OFFICIAL_CENTERS.includes(r.center))) throw new Error('مدينة غير رسمية!');
+  console.log(`\n⚠️  ملاحظات على البيانات (${issues.length}):`);
+  issues.forEach((i) => console.log('  - ' + i));
+
+  if (DRY) {
+    const { dueCutoff } = require('../utils/monthlyPlan');
+    for (const ym of ['2026-12', '2027-01', '2027-02', '2027-03', '2027-04', '2027-05']) {
+      const cut = dueCutoff(ym);
+      console.log(`  ${ym}: مستحق (آخر مرور < ${cut} أو فارغ) = ${open.filter((r) => !r.last || r.last < cut).length}`);
+    }
+    console.log('\n(dry-run: لم يُكتب أي شيء)');
+    process.exit(0);
+  }
+
+  await initDb();
+  const now = new Date().toISOString();
+  for (const r of open) {
+    await run(
+      `INSERT INTO establishments (id, facility_code, name, address, center, activity_type, owner, phone, water_qty, treatment_unit,
+                                   status_raw, is_active, last_visit_date, source_file, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+       ON CONFLICT (facility_code) DO UPDATE SET
+         name = EXCLUDED.name, address = EXCLUDED.address, center = EXCLUDED.center, activity_type = EXCLUDED.activity_type,
+         owner = EXCLUDED.owner, phone = EXCLUDED.phone, water_qty = EXCLUDED.water_qty, treatment_unit = EXCLUDED.treatment_unit,
+         status_raw = EXCLUDED.status_raw, is_active = 1, source_file = EXCLUDED.source_file, updated_at = EXCLUDED.updated_at,
+         last_visit_date = CASE WHEN EXCLUDED.last_visit_date > COALESCE(establishments.last_visit_date, '')
+                                THEN EXCLUDED.last_visit_date ELSE establishments.last_visit_date END`,
+      [uuidv4(), r.code, r.name, r.address, r.center, r.activity, r.owner, r.phone, r.water, r.unit, r.status, r.last, r.file, now, now]
+    );
+  }
+  for (const r of all.filter((x) => x.closed)) {
+    await run('UPDATE establishments SET is_active = 0 WHERE facility_code = ?', [r.code]);
+  }
+
+  // Visits recorded in the system itself also count (latest date wins)
+  await run(
+    `UPDATE establishments e SET last_visit_date = x.d FROM (
+       SELECT f.facility_code AS code, MAX(SUBSTRING(i.created_at, 1, 10)) AS d
+       FROM inspections i JOIN facilities f ON f.id = i.facility_id
+       WHERE i.record_status = 'valid' AND i.visit_outcome = 'inspected' GROUP BY f.facility_code) x
+     WHERE e.facility_code = x.code AND x.d > COALESCE(e.last_visit_date, '')`
+  );
+
+  const est = await queryAll('SELECT center, COUNT(*) AS n FROM establishments WHERE is_active = 1 GROUP BY center ORDER BY center');
+  console.log('\n✅ السجل الدائم:', est.map((e) => `${e.center}=${e.n}`).join(' | '));
+
+  const res = await generateMonthlyPlan(PLAN_MONTH, { generatedBy: 'import', userName: 'استيراد الإكسيل' });
+  console.log(res.created ? `✅ تم توليد ${res.plan.month_label}: ${res.total} منشأة` : `ℹ️ خطة ${PLAN_MONTH} موجودة مسبقاً`);
+  process.exit(0);
+})().catch((e) => { console.error('❌', e); process.exit(1); });

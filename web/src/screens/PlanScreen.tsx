@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { OFFICIAL_CENTERS } from '../constants';
 import { COLORS } from '../theme';
 import type { Facility, MonthlyPlan, User } from '../types';
 import { Chip } from '../components/Chip';
@@ -6,19 +7,6 @@ import { FacilityCard } from '../components/FacilityCard';
 import { RefreshCwIcon, RotateCcwIcon, SearchIcon, XIcon } from '../components/Icons';
 import { api } from '../api';
 
-const MENOUFIA_CENTERS = [
-  'شبين الكوم',
-  'قويسنا',
-  'بركة السبع',
-  'الشهداء',
-  'منوف',
-  'الباجور',
-  'سرس الليان',
-  'أشمون',
-  'تلا',
-  'السادات',
-  'أخرى',
-];
 
 const ACTIVITY_TYPES = ['مطعم/مطبخ', 'مغسلة', 'مصنع', 'محطة/خدمات', 'مزرعة/مجزر', 'أخرى'];
 
@@ -739,7 +727,7 @@ export const PlanScreen: React.FC<Props> = ({
                       fontSize: '13px',
                     }}
                   >
-                    {MENOUFIA_CENTERS.map((c) => (
+                    {OFFICIAL_CENTERS.map((c) => (
                       <option key={c} value={c}>
                         {c}
                       </option>

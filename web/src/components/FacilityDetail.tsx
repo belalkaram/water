@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { OFFICIAL_CENTERS } from '../constants';
 import { COLORS } from '../theme';
 import type { Facility, User } from '../types';
 import { COMPLIANCE_ITEMS, LEVEL_COLORS, LEVEL_LABELS, OUTCOME_LABELS } from '../constants';
@@ -17,19 +18,6 @@ import {
 } from './Icons';
 import { api } from '../api';
 
-const MENOUFIA_CENTERS = [
-  'شبين الكوم',
-  'قويسنا',
-  'بركة السبع',
-  'الشهداء',
-  'منوف',
-  'الباجور',
-  'سرس الليان',
-  'أشمون',
-  'تلا',
-  'السادات',
-  'أخرى',
-];
 
 const ACTIVITY_TYPES = ['مطعم/مطبخ', 'مغسلة', 'مصنع', 'محطة/خدمات', 'مزرعة/مجزر', 'أخرى'];
 
@@ -236,7 +224,7 @@ export const FacilityDetail: React.FC<Props> = ({
                   fontSize: '13px',
                 }}
               >
-                {MENOUFIA_CENTERS.map((c) => (
+                {OFFICIAL_CENTERS.map((c) => (
                   <option key={c} value={c}>
                     {c}
                   </option>

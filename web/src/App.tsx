@@ -107,7 +107,8 @@ export default function App() {
       try {
         const { plans: loadedPlans } = await api.getPlans(currentUser.code);
         setPlans(loadedPlans);
-        const targetPlanId = planIdOverride || selectedPlanId || loadedPlans[0]?.id || '';
+        const ym = new Date().toISOString().slice(0, 7);
+        const targetPlanId = planIdOverride || selectedPlanId || loadedPlans.find((p) => p.plan_month === ym)?.id || loadedPlans[0]?.id || '';
         setSelectedPlanId(targetPlanId);
 
         if (targetPlanId) {

@@ -8,6 +8,8 @@ export interface User {
   code: string;
   role: UserRole;
   active?: number;
+  home_center?: string;
+  assigned_centers?: string[];
 }
 
 export interface MonthlyPlan {
@@ -17,6 +19,7 @@ export interface MonthlyPlan {
   uploaded_by: string;
   total_facilities: number;
   created_at: string;
+  plan_month?: string | null;
 }
 
 export interface SampleItem {

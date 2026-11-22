@@ -10,6 +10,7 @@ const { parsePdfBuffer } = require('./utils/pdfParser');
 const { parsePlanFile } = require('./utils/universalParser');
 const { normalizePayload, hydrateInspection } = require('./utils/inspectionPayload');
 const C = require('./constants');
+const { previewMonthlyPlan, generateMonthlyPlan, currentYm, monthLabel } = require('./utils/monthlyPlan');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -95,6 +96,43 @@ function adminOnly(req, res, next) {
   next();
 }
 
+// ─── City scoping (workers only see/touch their assigned centers) ─────────────
+
+function parseCenters(raw) {
+  try {
+    const arr = JSON.parse(raw || '[]');
+    return Array.isArray(arr) ? arr.filter((c) => C.OFFICIAL_CENTERS.includes(c)) : [];
+  } catch { return []; }
+}
+
+// null = unrestricted (admin); otherwise the list of centers the user may access
+function userCenters(user) {
+  if (!user || user.role === 'admin') return null;
+  return parseCenters(user.assigned_centers);
+}
+
+function canAccessCenter(user, center) {
+  const list = userCenters(user);
+  return list === null || list.includes(center);
+}
+
+// SQL fragment limiting a column to the user's centers. Empty list => matches nothing.
+function centerScope(user, column = 'center') {
+  const list = userCenters(user);
+  if (list === null) return { sql: '', params: [] };
+  if (list.length === 0) return { sql: ' AND 1 = 0', params: [] };
+  return { sql: ` AND ${column} IN (${list.map(() => '?').join(',')})`, params: list };
+}
+
+function publicUser(u) {
+  return {
+    id: u.id, name: u.name, code: u.code, role: u.role, active: u.active,
+    home_center: u.home_center || '', assigned_centers: parseCenters(u.assigned_centers),
+  };
+}
+
+const FORBIDDEN_CENTER = { error: 'هذه المنشأة تابعة لمدينة غير مخصصة لك' };
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function logActivity({ plan_id, facility_id = null, facility_name, center = '', worker_id, worker_name, action, summary }) {
@@ -162,6 +200,14 @@ async function recordInspection(facility, user, payload, createdAt, { viaSync = 
         isConflict ? 'conflict' : 'valid',
       ]
     );
+    if (!isConflict && payload.visit_outcome === 'inspected') {
+      const visitDate = String(createdAt || now).slice(0, 10);
+      await tRun(
+        `UPDATE establishments SET last_visit_date = ?, updated_at = ?
+         WHERE facility_code = ? AND COALESCE(last_visit_date, '') < ?`,
+        [visitDate, now, facility.facility_code, visitDate]
+      );
+    }
     if (!isConflict) {
       await tRun(
         `UPDATE facilities
@@ -228,32 +274,84 @@ app.post('/api/auth/login', async (req, res, next) => {
   try {
     const code = String(req.body.code || '').trim().toUpperCase();
     if (!code) return res.status(400).json({ error: 'أدخل كود الدخول' });
-    const user = await queryOne('SELECT id, name, code, role, active FROM users WHERE UPPER(code) = ? AND active = 1', [code]);
+    const user = await queryOne('SELECT * FROM users WHERE UPPER(code) = ? AND active = 1', [code]);
     if (!user) return res.status(401).json({ error: 'الكود غير مسجل. تواصل مع الأدمن للحصول على كودك.' });
-    res.json({ user });
+    res.json({ user: publicUser(user) });
   } catch (err) { next(err); }
 });
 
 // Admin: list workers
 app.get('/api/workers', authMiddleware, adminOnly, async (req, res, next) => {
   try {
-    const workers = await queryAll("SELECT id, name, code, role, active, created_at FROM users WHERE role = 'worker' ORDER BY created_at DESC");
-    res.json({ workers });
+    const rows = await queryAll("SELECT * FROM users WHERE role = 'worker' ORDER BY created_at DESC");
+    res.json({ workers: rows.map((w) => ({ ...publicUser(w), created_at: w.created_at })), centers: C.OFFICIAL_CENTERS });
   } catch (err) { next(err); }
 });
+
+function validateWorkerBody(body) {
+  const name = String(body.name || '').trim();
+  const code = String(body.code || '').trim().toUpperCase();
+  const assigned = Array.isArray(body.assigned_centers) ? [...new Set(body.assigned_centers.map(String))] : [];
+  if (!name || !code) return { error: 'الاسم والكود مطلوبان' };
+  if (assigned.length === 0) return { error: 'اختر مدينة واحدة على الأقل للموظف' };
+  const bad = assigned.filter((c) => !C.OFFICIAL_CENTERS.includes(c));
+  if (bad.length) return { error: `مدن غير معتمدة: ${bad.join('، ')}` };
+  let home = String(body.home_center || '').trim();
+  if (!home) home = assigned[0];
+  if (!assigned.includes(home)) return { error: 'المنطقة الأساسية يجب أن تكون ضمن المدن المخصصة' };
+  return { name, code, assigned, home };
+}
 
 // Admin: create worker
 app.post('/api/workers', authMiddleware, adminOnly, async (req, res, next) => {
   try {
-    const name = String(req.body.name || '').trim();
-    const code = String(req.body.code || '').trim().toUpperCase();
-    if (!name || !code) return res.status(400).json({ error: 'الاسم والكود مطلوبان' });
-    const exists = await queryOne('SELECT id FROM users WHERE UPPER(code) = ?', [code]);
+    const v = validateWorkerBody(req.body);
+    if (v.error) return res.status(400).json({ error: v.error });
+    const exists = await queryOne('SELECT id FROM users WHERE UPPER(code) = ?', [v.code]);
     if (exists) return res.status(409).json({ error: 'هذا الكود مستخدم بالفعل' });
     const id = uuidv4();
     const now = new Date().toISOString();
-    await run('INSERT INTO users (id, name, code, role, active, created_at) VALUES (?, ?, ?, ?, 1, ?)', [id, name, code, 'worker', now]);
-    res.status(201).json({ worker: { id, name, code, role: 'worker', active: 1, created_at: now } });
+    await run(
+      'INSERT INTO users (id, name, code, role, active, created_at, assigned_centers, home_center) VALUES (?, ?, ?, ?, 1, ?, ?, ?)',
+      [id, v.name, v.code, 'worker', now, JSON.stringify(v.assigned), v.home]
+    );
+    res.status(201).json({ worker: { id, name: v.name, code: v.code, role: 'worker', active: 1, created_at: now, home_center: v.home, assigned_centers: v.assigned } });
+  } catch (err) { next(err); }
+});
+
+// Admin: update worker (name, code, centers)
+app.put('/api/workers/:id', authMiddleware, adminOnly, async (req, res, next) => {
+  try {
+    const worker = await queryOne("SELECT * FROM users WHERE id = ? AND role = 'worker'", [req.params.id]);
+    if (!worker) return res.status(404).json({ error: 'الموظف غير موجود' });
+    const v = validateWorkerBody(req.body);
+    if (v.error) return res.status(400).json({ error: v.error });
+    const clash = await queryOne('SELECT id FROM users WHERE UPPER(code) = ? AND id <> ?', [v.code, worker.id]);
+    if (clash) return res.status(409).json({ error: 'هذا الكود مستخدم بالفعل' });
+    await run('UPDATE users SET name = ?, code = ?, assigned_centers = ?, home_center = ? WHERE id = ?',
+      [v.name, v.code, JSON.stringify(v.assigned), v.home, worker.id]);
+    // Release temporary reservations in cities the worker no longer covers
+    await run(
+      `UPDATE facilities SET status = 'available', reserved_by_id = NULL, reserved_by_name = NULL, reserved_at = NULL, updated_at = ?
+       WHERE status = 'reserved' AND reserved_by_id = ? AND center NOT IN (${v.assigned.map(() => '?').join(',')})`,
+      [new Date().toISOString(), worker.id, ...v.assigned]
+    );
+    res.json({ worker: { id: worker.id, name: v.name, code: v.code, role: 'worker', active: worker.active, created_at: worker.created_at, home_center: v.home, assigned_centers: v.assigned } });
+  } catch (err) { next(err); }
+});
+
+// Admin: delete worker (past inspections keep the worker's name)
+app.delete('/api/workers/:id', authMiddleware, adminOnly, async (req, res, next) => {
+  try {
+    const worker = await queryOne("SELECT * FROM users WHERE id = ? AND role = 'worker'", [req.params.id]);
+    if (!worker) return res.status(404).json({ error: 'الموظف غير موجود' });
+    await run(
+      `UPDATE facilities SET status = 'available', reserved_by_id = NULL, reserved_by_name = NULL, reserved_at = NULL, updated_at = ?
+       WHERE status = 'reserved' AND reserved_by_id = ?`,
+      [new Date().toISOString(), worker.id]
+    );
+    await run('DELETE FROM users WHERE id = ?', [worker.id]);
+    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
@@ -275,14 +373,49 @@ app.get('/api/meta', authMiddleware, (req, res) => {
     violation_levels: C.LEVEL_LABELS,
     compliance: C.COMPLIANCE_LABELS,
     reservation_ttl_hours: C.RESERVATION_TTL_HOURS,
+    centers: userCenters(req.user) === null ? C.OFFICIAL_CENTERS : userCenters(req.user),
+    all_centers: C.OFFICIAL_CENTERS,
   });
 });
 
 // List plans
 app.get('/api/plans', authMiddleware, async (req, res, next) => {
   try {
+    // Safety net: if the cron missed the 1st of the month, create this month's plan on first access.
+    try { await generateMonthlyPlan(currentYm(), { generatedBy: 'auto' }); } catch (e) { console.error('auto plan:', e.message); }
     const plans = await queryAll('SELECT * FROM plans ORDER BY created_at DESC');
     res.json({ plans });
+  } catch (err) { next(err); }
+});
+
+// Admin: preview / generate a monthly plan from the permanent establishments registry
+app.get('/api/plans/monthly/preview', authMiddleware, adminOnly, async (req, res, next) => {
+  try {
+    const ym = String(req.query.month || '');
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return res.status(400).json({ error: 'صيغة الشهر غير صحيحة (YYYY-MM)' });
+    res.json(await previewMonthlyPlan(ym));
+  } catch (err) { next(err); }
+});
+
+app.post('/api/plans/generate-monthly', authMiddleware, adminOnly, async (req, res, next) => {
+  try {
+    const ym = String(req.body.month || '');
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return res.status(400).json({ error: 'صيغة الشهر غير صحيحة (YYYY-MM)' });
+    const out = await generateMonthlyPlan(ym, { generatedBy: 'manual', userName: req.user.name });
+    if (!out.created) {
+      return res.status(409).json({ error: out.empty ? 'لا توجد منشآت مستحقة في هذا الشهر' : `${monthLabel(ym)} موجودة بالفعل` });
+    }
+    res.status(201).json({ plan: out.plan, inserted: out.total });
+  } catch (err) { next(err); }
+});
+
+// Vercel Cron (1st of every month) — protected by CRON_SECRET
+app.get('/api/cron/monthly-plan', async (req, res, next) => {
+  try {
+    const secret = process.env.CRON_SECRET;
+    if (!secret || req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ error: 'unauthorized' });
+    const out = await generateMonthlyPlan(currentYm(), { generatedBy: 'auto' });
+    res.json({ month: currentYm(), created: out.created, total: out.total || 0 });
   } catch (err) { next(err); }
 });
 
@@ -418,6 +551,8 @@ app.get('/api/plans/:planId/facilities', authMiddleware, async (req, res, next) 
 
     let sql = 'SELECT * FROM facilities WHERE plan_id = ?';
     const params = [planId];
+    const scope = centerScope(req.user);
+    sql += scope.sql; params.push(...scope.params);
     if (center && center !== 'الكل') { sql += ' AND center = ?'; params.push(center); }
     if (status && status !== 'all') { sql += ' AND status = ?'; params.push(status); }
     if (search.trim()) {
@@ -469,6 +604,7 @@ app.get('/api/facilities/:id', authMiddleware, async (req, res, next) => {
   try {
     const facility = await queryOne('SELECT * FROM facilities WHERE id = ?', [req.params.id]);
     if (!facility) return res.status(404).json({ error: 'المنشأة غير موجودة' });
+    if (!canAccessCenter(req.user, facility.center)) return res.status(403).json(FORBIDDEN_CENTER);
 
     let insp = await queryOne(
       "SELECT * FROM inspections WHERE facility_id = ? AND record_status = 'valid' ORDER BY created_at DESC LIMIT 1",
@@ -516,6 +652,7 @@ app.post('/api/facilities/:id/reserve', authMiddleware, async (req, res, next) =
     if (existing) await expireStaleReservations(existing.plan_id);
     const facility = await queryOne('SELECT * FROM facilities WHERE id = ?', [req.params.id]);
     if (!facility) return res.status(404).json({ error: 'المنشأة غير موجودة' });
+    if (!canAccessCenter(req.user, facility.center)) return res.status(403).json(FORBIDDEN_CENTER);
     if (facility.status !== 'available') {
       return res.status(409).json({
         error: facility.status === 'completed'
@@ -543,6 +680,7 @@ app.post('/api/facilities/:id/release', authMiddleware, async (req, res, next) =
   try {
     const facility = await queryOne('SELECT * FROM facilities WHERE id = ?', [req.params.id]);
     if (!facility) return res.status(404).json({ error: 'المنشأة غير موجودة' });
+    if (!canAccessCenter(req.user, facility.center)) return res.status(403).json(FORBIDDEN_CENTER);
     if (facility.status !== 'reserved')
       return res.status(409).json({ error: 'المكان ليس في حالة حجز مؤقت', facility });
     if (facility.reserved_by_id !== req.user.id && req.user.role !== 'admin')
@@ -566,6 +704,7 @@ app.post('/api/facilities/:id/complete', authMiddleware, async (req, res, next) 
   try {
     const facility = await queryOne('SELECT * FROM facilities WHERE id = ?', [req.params.id]);
     if (!facility) return res.status(404).json({ error: 'المنشأة غير موجودة' });
+    if (!canAccessCenter(req.user, facility.center)) return res.status(403).json(FORBIDDEN_CENTER);
     if (facility.status === 'completed')
       return res.status(409).json({ error: `تم إقفال هذه المنشأة مسبقاً بواسطة ${facility.completed_by_name}`, facility });
     if (facility.status === 'reserved' && facility.reserved_by_id !== req.user.id && req.user.role !== 'admin')
@@ -891,7 +1030,8 @@ app.post('/api/followups/:id/dismiss', authMiddleware, adminOnly, async (req, re
 // Activity feed
 app.get('/api/plans/:planId/feed', authMiddleware, async (req, res, next) => {
   try {
-    const feed = await queryAll('SELECT * FROM activity_feed WHERE plan_id = ? ORDER BY created_at DESC LIMIT 150', [req.params.planId]);
+    const scope = centerScope(req.user);
+    const feed = await queryAll(`SELECT * FROM activity_feed WHERE plan_id = ?${scope.sql} ORDER BY created_at DESC LIMIT 150`, [req.params.planId, ...scope.params]);
     res.json({ feed });
   } catch (err) { next(err); }
 });
@@ -899,12 +1039,14 @@ app.get('/api/plans/:planId/feed', authMiddleware, async (req, res, next) => {
 // Follow-ups
 app.get('/api/followups', authMiddleware, async (req, res, next) => {
   try {
+    const scope = centerScope(req.user, 'f.center');
     const rows = await queryAll(
       `SELECT i.id, i.facility_id, i.worker_name, i.violation_level, i.followup_date, i.created_at, i.notes,
               f.name AS facility_name, f.center, f.facility_code, f.address
        FROM inspections i JOIN facilities f ON f.id = i.facility_id
-       WHERE i.followup_required = 1 AND i.record_status = 'valid'
-       ORDER BY CASE WHEN i.followup_date = '' THEN 1 ELSE 0 END, i.followup_date ASC`
+       WHERE i.followup_required = 1 AND i.record_status = 'valid'${scope.sql}
+       ORDER BY CASE WHEN i.followup_date = '' THEN 1 ELSE 0 END, i.followup_date ASC`,
+      scope.params
     );
     res.json({ followups: rows });
   } catch (err) { next(err); }
@@ -914,6 +1056,8 @@ app.post('/api/inspections/:id/followup-done', authMiddleware, async (req, res, 
   try {
     const insp = await queryOne('SELECT * FROM inspections WHERE id = ?', [req.params.id]);
     if (!insp) return res.status(404).json({ error: 'المعاينة غير موجودة' });
+    const fac = await queryOne('SELECT center FROM facilities WHERE id = ?', [insp.facility_id]);
+    if (fac && !canAccessCenter(req.user, fac.center)) return res.status(403).json(FORBIDDEN_CENTER);
     await run('UPDATE inspections SET followup_required = 0 WHERE id = ?', [insp.id]);
     res.json({ ok: true });
   } catch (err) { next(err); }
@@ -961,28 +1105,33 @@ app.get('/api/plans/:planId/stats', authMiddleware, async (req, res, next) => {
     const plan = await queryOne('SELECT * FROM plans WHERE id = ?', [planId]);
     if (!plan) return res.status(404).json({ error: 'الخطة غير موجودة' });
 
+    const statScope = centerScope(req.user);
     const totals = await queryOne(
       `SELECT COUNT(*) AS total,
               SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
               SUM(CASE WHEN status = 'reserved'  THEN 1 ELSE 0 END) AS reserved,
               SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END) AS available
-       FROM facilities WHERE plan_id = ?`, [planId]
+       FROM facilities WHERE plan_id = ?${statScope.sql}`, [planId, ...statScope.params]
     );
     const byCenter = await queryAll(
       `SELECT center,
               COUNT(*) AS total,
               SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
               SUM(CASE WHEN status = 'reserved'  THEN 1 ELSE 0 END) AS reserved
-       FROM facilities WHERE plan_id = ? GROUP BY center ORDER BY total DESC`, [planId]
+       FROM facilities WHERE plan_id = ?${statScope.sql} GROUP BY center ORDER BY total DESC`, [planId, ...statScope.params]
     );
     const byActivity = await queryAll(
       `SELECT COALESCE(NULLIF(activity_type, ''), 'أخرى') AS activity_type,
               COUNT(*) AS total,
               SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed
-       FROM facilities WHERE plan_id = ? GROUP BY 1 ORDER BY total DESC`, [planId]
+       FROM facilities WHERE plan_id = ?${statScope.sql} GROUP BY 1 ORDER BY total DESC`, [planId, ...statScope.params]
     );
 
-    const insp = (await queryAll("SELECT * FROM inspections WHERE plan_id = ? AND record_status = 'valid'", [planId])).map(hydrateInspection);
+    const insp = (await queryAll(
+      `SELECT * FROM inspections WHERE plan_id = ? AND record_status = 'valid'
+       AND facility_id IN (SELECT id FROM facilities WHERE plan_id = ?${statScope.sql})`,
+      [planId, planId, ...statScope.params]
+    )).map(hydrateInspection);
     const byWorkerMap = {};
     const outcomes = {};
     const levels = { none: 0, minor: 0, major: 0, critical: 0 };
@@ -1104,6 +1253,10 @@ app.post('/api/sync/batch', authMiddleware, async (req, res, next) => {
       const facility = await queryOne('SELECT * FROM facilities WHERE id = ?', [op.facility_id]);
       if (!facility) {
         results.push({ queue_id: op.queue_id, status: 'skipped', reason: 'المنشأة غير موجودة' });
+        continue;
+      }
+      if (!canAccessCenter(req.user, facility.center)) {
+        results.push({ queue_id: op.queue_id, facility_name: facility.name, status: 'rejected', reason: FORBIDDEN_CENTER.error });
         continue;
       }
       const now = new Date().toISOString();

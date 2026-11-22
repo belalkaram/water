@@ -1,7 +1,7 @@
 const CODE_PREFIX_TO_CENTER = [
   { prefix: 'SH', center: 'شبين الكوم' },
   { prefix: 'QA', center: 'قويسنا' },
-  { prefix: 'Q', center: 'قويسنا' },
+  { prefix: 'Q', center: 'قويسنا المنطقة الصناعية' },
   { prefix: 'A', center: 'أشمون' },
   { prefix: 'B', center: 'الباجور' },
   { prefix: 'T', center: 'تلا' },
@@ -9,7 +9,6 @@ const CODE_PREFIX_TO_CENTER = [
   { prefix: 'L', center: 'سرس الليان' },
   { prefix: 'R', center: 'بركة السبع' },
   { prefix: 'M', center: 'منوف' },
-  { prefix: 'S', center: 'السادات' },
 ];
 
 const ADDRESS_KEYWORDS = [
@@ -22,7 +21,6 @@ const ADDRESS_KEYWORDS = [
   { keywords: ['سرس الليان', 'سرس'], center: 'سرس الليان' },
   { keywords: ['بركة السبع', 'بركة', 'جنزور'], center: 'بركة السبع' },
   { keywords: ['منوف', 'كمشوش'], center: 'منوف' },
-  { keywords: ['السادات'], center: 'السادات' },
 ];
 
 function detectCenter(facilityCode, address, explicitCenter) {

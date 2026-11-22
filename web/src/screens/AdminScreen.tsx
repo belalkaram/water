@@ -3,6 +3,8 @@ import { COLORS } from '../theme';
 import type { ConflictItem, Facility, PlanStats, User } from '../types';
 import { LEVEL_COLORS, LEVEL_LABELS, type ViolationLevel } from '../constants';
 import { api } from '../api';
+import { WorkersPanel } from '../components/WorkersPanel';
+import { MonthlyPlanPanel } from '../components/MonthlyPlanPanel';
 import {
   AlertTriangleIcon,
   CheckCircleIcon,
@@ -12,7 +14,6 @@ import {
   RotateCcwIcon,
   UnlockIcon,
   UploadCloudIcon,
-  UserPlusIcon,
 } from '../components/Icons';
 
 interface Props {
@@ -25,9 +26,6 @@ interface Props {
 export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefresh }) => {
   const [monthLabel, setMonthLabel] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [workers, setWorkers] = useState<User[]>([]);
-  const [workerName, setWorkerName] = useState('');
-  const [workerCode, setWorkerCode] = useState('');
   const [stats, setStats] = useState<PlanStats | null>(null);
   const [statsError, setStatsError] = useState('');
   const [conflicts, setConflicts] = useState<ConflictItem[]>([]);
@@ -61,25 +59,15 @@ export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefre
     };
   }, [uploading]);
 
-  const loadWorkers = async () => {
-    try {
-      const res = await api.getWorkers(user.code);
-      setWorkers(res.workers);
-    } catch {
-      // ignore
-    }
-  };
-
   const loadStats = useCallback(async () => {
-    if (!planId) return;
     try {
-      const s = await api.getStats(user.code, planId);
-      setStats(s);
+      const res = await api.getStats(user.code, planId);
+      setStats(res);
       setStatsError('');
-    } catch {
-      setStatsError('تعذر تحميل الإحصائيات');
+    } catch (err: any) {
+      setStatsError(err.message || 'تعذر تحميل الإحصائيات');
     }
-  }, [planId, user.code]);
+  }, [user.code, planId]);
 
   const loadConflicts = async () => {
     try {
@@ -91,7 +79,6 @@ export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefre
   };
 
   useEffect(() => {
-    loadWorkers();
     loadConflicts();
   }, []);
 
@@ -209,36 +196,6 @@ export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefre
     if (!planId) return;
     const url = api.exportUrl(user.code, planId);
     window.open(url, '_blank');
-  };
-
-  const handleAddWorker = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!workerName.trim() || !workerCode.trim()) {
-      alert('أدخل اسم الموظف والكود');
-      return;
-    }
-    try {
-      await api.createWorker(user.code, workerName.trim(), workerCode.trim().toUpperCase());
-      setWorkerName('');
-      setWorkerCode('');
-      loadWorkers();
-      alert('تم إنشاء كود الموظف بنجاح');
-    } catch (err: any) {
-      alert('خطأ: ' + err.message);
-    }
-  };
-
-  const handleToggleWorker = async (w: User) => {
-    const willDisable = Boolean(w.active);
-    if (!window.confirm(`${willDisable ? 'إيقاف' : 'تفعيل'} كود ${w.name} (${w.code})؟`)) {
-      return;
-    }
-    try {
-      await api.toggleWorker(user.code, w.id);
-      loadWorkers();
-    } catch (err: any) {
-      alert('خطأ: ' + err.message);
-    }
   };
 
   const handleUnlock = async (facilityId: string) => {
@@ -915,126 +872,9 @@ export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefre
         </form>
       </div>
 
-      {/* Worker Codes Management */}
-      <div
-        style={{
-          backgroundColor: COLORS.surface,
-          borderRadius: '16px',
-          padding: '16px',
-          border: `1px solid ${COLORS.border}`,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px',
-        }}
-      >
-        <h3 style={{ fontSize: '15px', fontWeight: '800', color: COLORS.ink }}>
-          إدارة أكواد الموظفين
-        </h3>
+      <MonthlyPlanPanel adminCode={user.code} onCreated={onRefresh} />
 
-        <form onSubmit={handleAddWorker} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <input
-            type="text"
-            placeholder="اسم الموظف"
-            value={workerName}
-            onChange={(e) => setWorkerName(e.target.value)}
-            style={{
-              padding: '10px 12px',
-              borderRadius: '10px',
-              border: `1px solid ${COLORS.border}`,
-              backgroundColor: COLORS.bg,
-            }}
-          />
-          <input
-            type="text"
-            placeholder="كود الدخول (مثال: W104)"
-            value={workerCode}
-            onChange={(e) => setWorkerCode(e.target.value.toUpperCase())}
-            style={{
-              padding: '10px 12px',
-              borderRadius: '10px',
-              border: `1px solid ${COLORS.border}`,
-              backgroundColor: COLORS.bg,
-              textTransform: 'uppercase',
-            }}
-          />
-          <button
-            type="submit"
-            style={{
-              padding: '10px',
-              backgroundColor: COLORS.green,
-              color: '#FFFFFF',
-              borderRadius: '10px',
-              fontSize: '13px',
-              fontWeight: '800',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-            }}
-          >
-            <UserPlusIcon size={16} color="#FFFFFF" />
-            <span>إنشاء كود موظف</span>
-          </button>
-        </form>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
-          {workers.map((w) => (
-            <div
-              key={w.id}
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '8px 10px',
-                backgroundColor: COLORS.bg,
-                borderRadius: '8px',
-                border: `1px solid ${COLORS.border}`,
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => handleToggleWorker(w)}
-                style={{
-                  padding: '4px 8px',
-                  borderRadius: '6px',
-                  backgroundColor: w.active ? COLORS.redSoft : COLORS.greenSoft,
-                  color: w.active ? COLORS.red : COLORS.green,
-                  fontSize: '11px',
-                  fontWeight: '700',
-                }}
-              >
-                {w.active ? 'إيقاف' : 'تفعيل'}
-              </button>
-
-              <div style={{ flex: 1, marginRight: '10px' }}>
-                <span
-                  style={{
-                    fontSize: '13px',
-                    fontWeight: '700',
-                    color: w.active ? COLORS.ink : COLORS.muted,
-                    textDecoration: w.active ? 'none' : 'line-through',
-                  }}
-                >
-                  {w.name}
-                </span>
-              </div>
-
-              <span
-                style={{
-                  fontSize: '12px',
-                  fontWeight: '800',
-                  color: COLORS.primary,
-                  backgroundColor: COLORS.surface,
-                  padding: '2px 8px',
-                  borderRadius: '6px',
-                }}
-              >
-                {w.code}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
+      <WorkersPanel adminCode={user.code} />
 
       {/* Locked & Reserved Facilities */}
       <div

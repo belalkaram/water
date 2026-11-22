@@ -158,6 +158,35 @@ async function initDb() {
     );
   `);
 
+  // ── Migrations: permanent establishments registry, monthly plans, worker centers ──
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS establishments (
+      id TEXT PRIMARY KEY,
+      facility_code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      address TEXT DEFAULT '',
+      center TEXT NOT NULL,
+      activity_type TEXT DEFAULT '',
+      owner TEXT DEFAULT '',
+      phone TEXT DEFAULT '',
+      water_qty TEXT DEFAULT '',
+      treatment_unit TEXT DEFAULT '',
+      status_raw TEXT DEFAULT '',
+      is_active INTEGER NOT NULL DEFAULT 1,
+      last_visit_date TEXT DEFAULT '',
+      source_file TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  await p.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS plan_month TEXT`);
+  await p.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS generated_by TEXT DEFAULT 'manual'`);
+  await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_centers TEXT NOT NULL DEFAULT '[]'`);
+  await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_center TEXT DEFAULT ''`);
+  await p.query(`UPDATE plans SET plan_month = '2026-11' WHERE plan_month IS NULL AND month_label = 'خطة نوفمبر 2026'`);
+  await p.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_plans_month ON plans(plan_month) WHERE plan_month IS NOT NULL`);
+  await p.query(`CREATE INDEX IF NOT EXISTS idx_est_center ON establishments(center, is_active)`);
+
   // Indexes
   await p.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_insp_client ON inspections(client_id) WHERE client_id <> ''`);
   await p.query(`CREATE INDEX IF NOT EXISTS idx_fac_plan ON facilities(plan_id, status)`);

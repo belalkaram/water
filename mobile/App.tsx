@@ -73,12 +73,14 @@ export default function App() {
     const { plans: loadedPlans, offline: isOff } = await loadPlansOfflineFirst(currentUser.code);
     setPlans(loadedPlans);
     setOffline(isOff);
-    const targetPlanId = planIdOverride || selectedPlanId || loadedPlans[0]?.id || '';
+    const ym = new Date().toISOString().slice(0, 7);
+    const targetPlanId = planIdOverride || selectedPlanId || (loadedPlans as any[]).find((p) => p.plan_month === ym)?.id || loadedPlans[0]?.id || '';
     setSelectedPlanId(targetPlanId);
 
     if (targetPlanId) {
       const data = await loadPlanDataOfflineFirst(currentUser.code, targetPlanId);
-      setFacilities(data.facilities);
+      const mine = currentUser.role === 'admin' ? null : currentUser.assigned_centers || [];
+      setFacilities(mine ? data.facilities.filter((f) => mine.includes(f.center)) : data.facilities);
       setFeed(data.feed);
       setOffline(data.offline);
     }
