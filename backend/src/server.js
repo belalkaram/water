@@ -135,12 +135,89 @@ const FORBIDDEN_CENTER = { error: 'هذه المنشأة تابعة لمدينة
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function logActivity({ plan_id, facility_id = null, facility_name, center = '', worker_id, worker_name, action, summary }) {
+async function logActivity({ plan_id, facility_id = null, facility_name, center = '', worker_id, worker_name, action, summary, inspection_id = null }) {
   await run(
-    `INSERT INTO activity_feed (id, plan_id, facility_id, facility_name, center, worker_id, worker_name, action, summary, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [uuidv4(), plan_id, facility_id, facility_name, center, worker_id, worker_name, action, summary, new Date().toISOString()]
+    `INSERT INTO activity_feed (id, plan_id, facility_id, facility_name, center, worker_id, worker_name, action, summary, created_at, inspection_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [uuidv4(), plan_id, facility_id, facility_name, center, worker_id, worker_name, action, summary, new Date().toISOString(), inspection_id]
   );
+}
+
+// ─── Main registry (establishments) helpers ───────────────────────────────────
+
+// last visit = latest of (Excel baseline, newest VALID 'inspected' inspection made in the app)
+async function refreshLastVisit(codes) {
+  const list = [...new Set(codes.filter(Boolean))];
+  if (list.length === 0) return;
+  await run(
+    `UPDATE establishments e SET updated_at = ?, last_visit_date = GREATEST(COALESCE(e.baseline_visit_date, ''), COALESCE((
+       SELECT MAX(SUBSTRING(i.created_at, 1, 10)) FROM inspections i JOIN facilities f ON f.id = i.facility_id
+       WHERE f.facility_code = e.facility_code AND i.record_status = 'valid' AND i.visit_outcome = 'inspected'), ''))
+     WHERE e.facility_code IN (${list.map(() => '?').join(',')})`,
+    [new Date().toISOString(), ...list]
+  );
+}
+
+async function purgeFeedForFacilities(facilityIds) {
+  const ids = facilityIds.filter(Boolean);
+  if (ids.length === 0) return;
+  await run(`DELETE FROM activity_feed WHERE facility_id IN (${ids.map(() => '?').join(',')})`, ids);
+}
+
+// After an admin reopens / wipes inspections: re-derive last visit, and on wipe erase them from the team feed
+async function finishReopen(facilities, wipe) {
+  await refreshLastVisit(facilities.map((f) => f.facility_code));
+  if (wipe) await purgeFeedForFacilities(facilities.map((f) => f.id));
+}
+
+async function attachLastVisit(rows) {
+  const codes = [...new Set(rows.map((r) => r.facility_code).filter(Boolean))];
+  if (codes.length === 0) return rows;
+  const found = await queryAll(
+    `SELECT facility_code, last_visit_date FROM establishments WHERE facility_code IN (${codes.map(() => '?').join(',')})`, codes
+  );
+  const map = Object.fromEntries(found.map((e) => [e.facility_code, e.last_visit_date || '']));
+  return rows.map((r) => ({ ...r, last_visit_date: map[r.facility_code] || '' }));
+}
+
+function nextYm() {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + 1);
+  return currentYm(d);
+}
+
+// Put a rejected facility back into the registry as "due" and into next month's plan
+async function queueForNextMonth(facility) {
+  let est = await queryOne('SELECT * FROM establishments WHERE facility_code = ?', [facility.facility_code]);
+  const now = new Date().toISOString();
+  if (!est && C.OFFICIAL_CENTERS.includes(facility.center)) {
+    await run(
+      `INSERT INTO establishments (id, facility_code, name, address, center, activity_type, is_active, last_visit_date, baseline_visit_date, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, '', '', ?, ?)`,
+      [uuidv4(), facility.facility_code, facility.name, facility.address || '', facility.center, facility.activity_type || '', now, now]
+    );
+    est = await queryOne('SELECT * FROM establishments WHERE facility_code = ?', [facility.facility_code]);
+  }
+  if (!est || !est.is_active) return { queued: false };
+  const ym = nextYm();
+  const plan = await queryOne('SELECT * FROM plans WHERE plan_month = ?', [ym]);
+  if (!plan) {
+    await run('UPDATE establishments SET reinspect_flag = 1, updated_at = ? WHERE id = ?', [now, est.id]);
+    return { queued: true, month: ym, inserted: false };
+  }
+  const already = await queryOne('SELECT id FROM facilities WHERE plan_id = ? AND facility_code = ?', [plan.id, est.facility_code]);
+  if (!already) {
+    const max = await queryOne('SELECT COALESCE(MAX(serial_no), 0) AS m FROM facilities WHERE plan_id = ?', [plan.id]);
+    await run(
+      `INSERT INTO facilities (id, plan_id, serial_no, name, address, center, facility_code, target_date, plan_notes, activity_type, status, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, '', 'أُعيدت بعد رفض المعاينة', ?, 'available', ?)`,
+      [uuidv4(), plan.id, Number(max.m) + 1, est.name, est.address || '', est.center, est.facility_code, est.activity_type || '', now]
+    );
+    await run('UPDATE plans SET total_facilities = total_facilities + 1 WHERE id = ?', [plan.id]);
+  }
+  await run('UPDATE establishments SET reinspect_flag = 0, updated_at = ? WHERE id = ?', [now, est.id]);
+  return { queued: true, month: ym, inserted: !already };
 }
 
 async function expireStaleReservations(planId) {
@@ -200,14 +277,6 @@ async function recordInspection(facility, user, payload, createdAt, { viaSync = 
         isConflict ? 'conflict' : 'valid',
       ]
     );
-    if (!isConflict && payload.visit_outcome === 'inspected') {
-      const visitDate = String(createdAt || now).slice(0, 10);
-      await tRun(
-        `UPDATE establishments SET last_visit_date = ?, updated_at = ?
-         WHERE facility_code = ? AND COALESCE(last_visit_date, '') < ?`,
-        [visitDate, now, facility.facility_code, visitDate]
-      );
-    }
     if (!isConflict) {
       await tRun(
         `UPDATE facilities
@@ -221,6 +290,11 @@ async function recordInspection(facility, user, payload, createdAt, { viaSync = 
     }
   });
 
+  if (!isConflict && payload.visit_outcome === 'inspected') {
+    await refreshLastVisit([facility.facility_code]);
+    await run('UPDATE establishments SET reinspect_flag = 0 WHERE facility_code = ?', [facility.facility_code]);
+  }
+
   const summary = payload.visit_outcome === 'inspected'
     ? `أتم المعاينة${viaSync ? ' (متزامن)' : ''} في ${facility.name} (${payload.samples.length} نوع / ${totalCount} عينة)` +
       (payload.violation_level !== 'none' ? ` — مخالفة ${C.LEVEL_LABELS[payload.violation_level]}` : '')
@@ -230,6 +304,7 @@ async function recordInspection(facility, user, payload, createdAt, { viaSync = 
     plan_id: facility.plan_id, facility_id: facility.id, facility_name: facility.name, center: facility.center,
     worker_id: user.id, worker_name: user.name, action: 'completed',
     summary: isConflict ? `⚠️ معاينة مكررة محفوظة للمراجعة — ${summary}` : summary,
+    inspection_id: inspId,
   });
 
   return {
@@ -589,7 +664,7 @@ app.get('/api/plans/:planId/facilities', authMiddleware, async (req, res, next) 
     const openFollowups = new Set(followupRows.map((r) => r.facility_id));
 
     res.json({
-      facilities: facilities.map((f) => ({
+      facilities: (await attachLastVisit(facilities)).map((f) => ({
         ...f,
         inspection: inspByFacility[f.id] || null,
         history: prior[f.facility_code] || null,
@@ -612,7 +687,7 @@ app.get('/api/facilities/:id', authMiddleware, async (req, res, next) => {
     );
     if (!insp) {
       insp = await queryOne(
-        'SELECT * FROM inspections WHERE facility_id = ? ORDER BY created_at DESC LIMIT 1',
+        "SELECT * FROM inspections WHERE facility_id = ? AND record_status NOT IN ('rejected', 'superseded', 'discarded') ORDER BY created_at DESC LIMIT 1",
         [facility.id]
       );
     }
@@ -636,7 +711,7 @@ app.get('/api/facilities/:id', authMiddleware, async (req, res, next) => {
 
     res.json({
       facility: {
-        ...facility,
+        ...(await attachLastVisit([facility]))[0],
         inspection: insp ? hydrateInspection(insp) : null,
         history,
         has_followup: Boolean(followup),
@@ -716,6 +791,81 @@ app.post('/api/facilities/:id/complete', authMiddleware, async (req, res, next) 
   } catch (err) { next(err); }
 });
 
+// Admin: reject the completed inspection → back to the registry as "not visited", queued for next month
+app.post('/api/facilities/:id/reject', authMiddleware, adminOnly, async (req, res, next) => {
+  try {
+    const facility = await queryOne('SELECT * FROM facilities WHERE id = ?', [req.params.id]);
+    if (!facility) return res.status(404).json({ error: 'المنشأة غير موجودة' });
+    const valid = await queryAll("SELECT id FROM inspections WHERE facility_id = ? AND record_status = 'valid'", [facility.id]);
+    if (facility.status !== 'completed' && valid.length === 0) {
+      return res.status(409).json({ error: 'لا توجد معاينة مكتملة لرفضها' });
+    }
+    const reason = String(req.body.reason || '').trim();
+    const now = new Date().toISOString();
+    await transaction(async ({ run: tRun }) => {
+      await tRun("UPDATE inspections SET record_status = 'rejected', reject_reason = ? WHERE facility_id = ? AND record_status = 'valid'", [reason, facility.id]);
+      await tRun(
+        `UPDATE facilities
+         SET status = 'available', reserved_by_id = NULL, reserved_by_name = NULL, reserved_at = NULL,
+             completed_by_id = NULL, completed_by_name = NULL, completed_at = NULL, visit_outcome = '', updated_at = ?
+         WHERE id = ?`,
+        [now, facility.id]
+      );
+    });
+    const ids = valid.map((v) => v.id);
+    if (ids.length) await run(`DELETE FROM activity_feed WHERE inspection_id IN (${ids.map(() => '?').join(',')})`, ids);
+    await run("DELETE FROM activity_feed WHERE facility_id = ? AND action = 'completed' AND inspection_id IS NULL", [facility.id]);
+    await refreshLastVisit([facility.facility_code]);
+    const next = await queueForNextMonth(facility);
+    await logActivity({
+      plan_id: facility.plan_id, facility_id: facility.id, facility_name: facility.name, center: facility.center,
+      worker_id: req.user.id, worker_name: req.user.name, action: 'rejected',
+      summary: `رفض الأدمن معاينة ${facility.name}${reason ? ` (${reason})` : ''} — عادت للقاعدة الأساسية${next.queued ? ` وأُضيفت لخطة ${next.month}` : ''}`,
+    });
+    const [fresh] = await attachLastVisit([await queryOne('SELECT * FROM facilities WHERE id = ?', [facility.id])]);
+    res.json({ success: true, facility: fresh, next_plan: next });
+  } catch (err) { next(err); }
+});
+
+// Month plan file from the main registry — admins get everything, workers only their cities
+app.get('/api/plans/:planId/plan.xlsx', authFromQuery, authMiddleware, async (req, res, next) => {
+  try {
+    const plan = await queryOne('SELECT * FROM plans WHERE id = ?', [req.params.planId]);
+    if (!plan) return res.status(404).json({ error: 'الخطة غير موجودة' });
+    const scope = centerScope(req.user);
+    const center = String(req.query.center || '').trim();
+    const facilities = await queryAll(
+      `SELECT * FROM facilities WHERE plan_id = ?${scope.sql}${center ? ' AND center = ?' : ''} ORDER BY center, serial_no ASC`,
+      [plan.id, ...scope.params, ...(center ? [center] : [])]
+    );
+    const codes = facilities.map((f) => f.facility_code);
+    const ests = codes.length
+      ? await queryAll(`SELECT * FROM establishments WHERE facility_code IN (${codes.map(() => '?').join(',')})`, codes)
+      : [];
+    const estMap = Object.fromEntries(ests.map((e) => [e.facility_code, e]));
+    const statusLabel = { available: 'لم تتم', reserved: 'في الطريق', completed: 'تمت' };
+    const rows = facilities.map((f, idx) => {
+      const e = estMap[f.facility_code] || {};
+      return {
+        'م': idx + 1, 'اسم المنشأة': f.name, 'الكود': f.facility_code, 'المدينة': f.center, 'العنوان': f.address,
+        'النشاط': f.activity_type || e.activity_type || '', 'صاحب المنشأة': e.owner || '', 'وسيلة الاتصال': e.phone || '',
+        'كمية المياه (م3/شهر)': e.water_qty || '', 'وحدة المعالجة': e.treatment_unit || '',
+        'تاريخ آخر معاينة': e.last_visit_date || 'لم تُعاين',
+        'حالة الخطة': statusLabel[f.status] || f.status,
+        'المعاين': f.completed_by_name || '', 'تاريخ التنفيذ': f.completed_at ? String(f.completed_at).slice(0, 10) : '',
+        'ملاحظات': f.plan_notes || '',
+      };
+    });
+    const wb = xlsx.utils.book_new();
+    wb.Workbook = { Views: [{ RTL: true }] };
+    xlsx.utils.book_append_sheet(wb, xlsx.utils.json_to_sheet(rows), plan.month_label.slice(0, 28));
+    const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="plan-${plan.plan_month || plan.id.slice(0, 8)}.xlsx"`);
+    res.send(buf);
+  } catch (err) { next(err); }
+});
+
 // Admin: unlock a facility (backward compatibility)
 app.post('/api/facilities/:id/unlock', authMiddleware, adminOnly, async (req, res, next) => {
   try {
@@ -732,6 +882,7 @@ app.post('/api/facilities/:id/unlock', authMiddleware, adminOnly, async (req, re
         [now, facility.id]
       );
     });
+    await finishReopen([facility], false);
     await logActivity({
       plan_id: facility.plan_id, facility_id: facility.id, facility_name: facility.name, center: facility.center,
       worker_id: req.user.id, worker_name: req.user.name, action: 'unlocked',
@@ -768,7 +919,8 @@ app.post('/api/facilities/:id/reset', authMiddleware, adminOnly, async (req, res
     });
 
     const isWiped = mode === 'wipe';
-    await logActivity({
+    await finishReopen([facility], isWiped);
+    if (!isWiped) await logActivity({
       plan_id: facility.plan_id,
       facility_id: facility.id,
       facility_name: facility.name,
@@ -806,7 +958,7 @@ app.post('/api/plans/:planId/bulk-reset', authMiddleware, adminOnly, async (req,
       whereClause += " AND status IN ('completed', 'reserved')";
     }
 
-    const targetFacilities = await queryAll(`SELECT id, name FROM facilities WHERE ${whereClause}`, [planId]);
+    const targetFacilities = await queryAll(`SELECT id, name, facility_code FROM facilities WHERE ${whereClause}`, [planId]);
     if (targetFacilities.length === 0) {
       return res.json({ success: true, count: 0, message: 'لا توجد منشآت مطابقة للشرط المطلوب' });
     }
@@ -838,7 +990,8 @@ app.post('/api/plans/:planId/bulk-reset', authMiddleware, adminOnly, async (req,
       }
     });
 
-    await logActivity({
+    await finishReopen(targetFacilities, mode === 'wipe');
+    if (mode !== 'wipe') await logActivity({
       plan_id: planId,
       worker_id: req.user.id,
       worker_name: req.user.name,
@@ -997,6 +1150,7 @@ app.delete('/api/facilities/:id', authMiddleware, adminOnly, async (req, res, ne
       await tRun('DELETE FROM facilities WHERE id = ?', [facility.id]);
       await tRun('UPDATE plans SET total_facilities = GREATEST(0, total_facilities - 1) WHERE id = ?', [facility.plan_id]);
     });
+    await finishReopen([facility], true);
 
     await logActivity({
       plan_id: facility.plan_id,
@@ -1048,7 +1202,7 @@ app.get('/api/followups', authMiddleware, async (req, res, next) => {
        ORDER BY CASE WHEN i.followup_date = '' THEN 1 ELSE 0 END, i.followup_date ASC`,
       scope.params
     );
-    res.json({ followups: rows });
+    res.json({ followups: await attachLastVisit(rows) });
   } catch (err) { next(err); }
 });
 
@@ -1093,6 +1247,8 @@ app.post('/api/conflicts/:id/resolve', authMiddleware, adminOnly, async (req, re
         await tRun("UPDATE inspections SET record_status = 'discarded' WHERE id = ?", [insp.id]);
       }
     });
+    const confFac = await queryOne('SELECT facility_code FROM facilities WHERE id = ?', [insp.facility_id]);
+    if (confFac) await refreshLastVisit([confFac.facility_code]);
     res.json({ ok: true, decision });
   } catch (err) { next(err); }
 });

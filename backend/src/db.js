@@ -184,6 +184,12 @@ async function initDb() {
   await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_centers TEXT NOT NULL DEFAULT '[]'`);
   await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_center TEXT DEFAULT ''`);
   await p.query(`UPDATE plans SET plan_month = '2026-11' WHERE plan_month IS NULL AND month_label = 'خطة نوفمبر 2026'`);
+  await p.query(`ALTER TABLE establishments ADD COLUMN IF NOT EXISTS baseline_visit_date TEXT DEFAULT ''`);
+  await p.query(`ALTER TABLE establishments ADD COLUMN IF NOT EXISTS reinspect_flag INTEGER NOT NULL DEFAULT 0`);
+  await p.query(`UPDATE establishments SET baseline_visit_date = last_visit_date WHERE COALESCE(baseline_visit_date, '') = ''`);
+  await p.query(`ALTER TABLE activity_feed ADD COLUMN IF NOT EXISTS inspection_id TEXT`);
+  await p.query(`ALTER TABLE activity_feed DROP CONSTRAINT IF EXISTS activity_feed_action_check`);
+  await p.query(`ALTER TABLE inspections ADD COLUMN IF NOT EXISTS reject_reason TEXT DEFAULT ''`);
   await p.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_plans_month ON plans(plan_month) WHERE plan_month IS NOT NULL`);
   await p.query(`CREATE INDEX IF NOT EXISTS idx_est_center ON establishments(center, is_active)`);
 

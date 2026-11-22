@@ -123,6 +123,22 @@ export const FacilityDetail: React.FC<Props> = ({
     }
   };
 
+  // Admin: reject the inspection → back to registry + next month's plan
+  const handleReject = async () => {
+    const reason = window.prompt('سبب رفض المعاينة (اختياري):\nستعود المنشأة للقاعدة الأساسية كأنها لم تُعاين، وتُضاف لخطة الشهر القادم.');
+    if (reason === null) return;
+    setLoading(true);
+    try {
+      const res = await api.rejectFacility(user.code, facility.id, reason.trim());
+      if (onFacilityUpdated) onFacilityUpdated(res.facility);
+      alert(res.next_plan?.queued ? `تم رفض المعاينة وإضافة المنشأة لخطة ${res.next_plan.month}` : 'تم رفض المعاينة');
+    } catch (err: any) {
+      alert('تعذر رفض المعاينة: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Admin: Reset facility (keep_history or wipe)
   const handleReset = async (mode: 'keep_history' | 'wipe') => {
     const confirmMsg =
@@ -379,6 +395,7 @@ export const FacilityDetail: React.FC<Props> = ({
 
           <div style={{ fontSize: '12px', color: COLORS.primary, fontWeight: '700', marginTop: '4px', textAlign: 'right' }}>
             نوع النشاط: {facility.activity_type || 'أخرى'}
+            {` • آخر معاينة: ${facility.last_visit_date || 'لم تُعاين'}`}
             {facility.target_date ? ` • تاريخ الخطة: ${facility.target_date}` : ''}
           </div>
 
@@ -748,6 +765,20 @@ export const FacilityDetail: React.FC<Props> = ({
             <WrenchIcon size={16} color={COLORS.primary} />
             <span>صلاحيات الإدارة للمنشأة:</span>
           </div>
+
+          {facility.status === 'completed' && (
+            <button
+              type="button"
+              disabled={loading}
+              onClick={handleReject}
+              style={{
+                padding: '11px', backgroundColor: COLORS.redSoft, border: `1.5px solid ${COLORS.red}`, color: COLORS.red,
+                borderRadius: '10px', fontSize: '13px', fontWeight: '800', cursor: 'pointer',
+              }}
+            >
+              رفض المعاينة (تعود للقاعدة وخطة الشهر القادم)
+            </button>
+          )}
 
           {/* Reset Action (with Sub-options) */}
           {!isAvailable && (

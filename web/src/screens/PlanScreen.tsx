@@ -570,6 +570,17 @@ export const PlanScreen: React.FC<Props> = ({
         )}
       </div>
 
+      <button
+        type="button"
+        onClick={() => window.open(api.planFileUrl(user.code, selectedPlanId, centerFilter !== 'الكل' ? centerFilter : undefined), '_blank')}
+        style={{
+          padding: '10px', backgroundColor: COLORS.surface, border: `1px solid ${COLORS.primary}`, color: COLORS.primary,
+          borderRadius: '10px', fontSize: '12px', fontWeight: '800', cursor: 'pointer',
+        }}
+      >
+        تصدير ملف الخطة (Excel){centerFilter !== 'الكل' ? ` — ${centerFilter}` : ''}
+      </button>
+
       {/* Facilities Cards List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '80px' }}>
         {filteredFacilities.length === 0 ? (

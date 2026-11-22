@@ -24,7 +24,7 @@ import {
   releaseFacilityOfflineFirst,
   reserveFacilityOfflineFirst,
 } from './src/services/syncEngine';
-import { api } from './src/services/api';
+import { api, getServerUrl } from './src/services/api';
 import { COLORS } from './src/theme/colors';
 import { ActivityItem, Facility, MonthlyPlan, User } from './src/types';
 import LoginScreen from './src/screens/LoginScreen';
@@ -251,6 +251,18 @@ export default function App() {
             onChangeText={setSearch}
           />
 
+          <TouchableOpacity
+            style={[styles.chip, { alignSelf: 'flex-start', marginBottom: 6 }]}
+            onPress={async () => {
+              if (!user || !selectedPlanId) return;
+              const base = await getServerUrl();
+              const q = centerFilter !== 'الكل' ? `&center=${encodeURIComponent(centerFilter)}` : '';
+              Linking.openURL(`${base}/api/plans/${selectedPlanId}/plan.xlsx?code=${encodeURIComponent(user.code)}${q}`);
+            }}
+          >
+            <Text style={styles.chipText}>تصدير ملف الخطة (Excel)</Text>
+          </TouchableOpacity>
+
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.centerRow}>
             {centers.map((c) => (
               <TouchableOpacity
@@ -319,6 +331,7 @@ export default function App() {
                 <Text style={styles.facilityMeta}>
                   كود: {item.facility_code} • {item.activity_type || 'أخرى'} • تاريخ الخطة: {item.target_date || '-'}
                 </Text>
+                <Text style={styles.facilityMeta}>آخر معاينة: {item.last_visit_date || 'لم تُعاين'}</Text>
                 <View style={styles.badgeRow}>
                   {item.has_followup && (
                     <View style={[styles.badge, { backgroundColor: COLORS.amberSoft }]}>
@@ -387,6 +400,7 @@ export default function App() {
               <Text style={styles.modalTitle}>{activeFacility.name}</Text>
               <Text style={styles.facilityAddr}>{activeFacility.center} — {activeFacility.address}</Text>
               <Text style={styles.facilityMeta}>كود: {activeFacility.facility_code} • {activeFacility.activity_type || 'أخرى'}</Text>
+              <Text style={styles.facilityMeta}>آخر معاينة: {activeFacility.last_visit_date || 'لم تُعاين'}</Text>
 
               {activeFacility.history && (
                 <Text style={[styles.infoBox, { marginTop: 8, backgroundColor: LEVEL_COLORS[activeFacility.history.worst].bg, color: LEVEL_COLORS[activeFacility.history.worst].fg }]}>

@@ -27,7 +27,7 @@ async function dueEstablishments(ym) {
   const cutoff = dueCutoff(ym);
   return queryAll(
     `SELECT * FROM establishments
-     WHERE is_active = 1 AND (last_visit_date = '' OR last_visit_date IS NULL OR last_visit_date < ?)
+     WHERE is_active = 1 AND (reinspect_flag = 1 OR last_visit_date = '' OR last_visit_date IS NULL OR last_visit_date < ?)
      ORDER BY center, facility_code`,
     [cutoff]
   );
@@ -75,6 +75,10 @@ async function generateMonthlyPlan(ym, { generatedBy = 'auto', userName = 'ال�
           params
         );
       }
+      await tRun(
+        `UPDATE establishments SET reinspect_flag = 0 WHERE facility_code IN (${rows.map(() => '?').join(',')})`,
+        rows.map((r) => r.facility_code)
+      );
     });
   } catch (err) {
     // Lost a race against another generator (unique plan_month index) — treat as already created.

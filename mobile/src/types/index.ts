@@ -83,6 +83,7 @@ export interface Facility {
   visit_outcome?: VisitOutcome | '';
   history?: FacilityHistory | null;
   has_followup?: boolean;
+  last_visit_date?: string;
   inspection?: Inspection | null;
 }
 

@@ -84,6 +84,7 @@ export interface Facility {
   visit_outcome?: VisitOutcome | '';
   history?: FacilityHistory | null;
   has_followup?: boolean;
+  last_visit_date?: string;
   inspection?: Inspection | null;
 }
 
@@ -95,7 +96,7 @@ export interface ActivityItem {
   center: string;
   worker_id: string;
   worker_name: string;
-  action: 'reserved' | 'released' | 'expired' | 'completed' | 'unlocked' | 'plan_uploaded';
+  action: 'reserved' | 'released' | 'expired' | 'completed' | 'unlocked' | 'plan_uploaded' | 'rejected';
   summary: string;
   created_at: string;
 }

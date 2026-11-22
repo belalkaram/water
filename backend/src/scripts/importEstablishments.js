@@ -139,28 +139,25 @@ function readFile(file, issues) {
   for (const r of open) {
     await run(
       `INSERT INTO establishments (id, facility_code, name, address, center, activity_type, owner, phone, water_qty, treatment_unit,
-                                   status_raw, is_active, last_visit_date, source_file, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+                                   status_raw, is_active, last_visit_date, baseline_visit_date, source_file, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
        ON CONFLICT (facility_code) DO UPDATE SET
          name = EXCLUDED.name, address = EXCLUDED.address, center = EXCLUDED.center, activity_type = EXCLUDED.activity_type,
          owner = EXCLUDED.owner, phone = EXCLUDED.phone, water_qty = EXCLUDED.water_qty, treatment_unit = EXCLUDED.treatment_unit,
          status_raw = EXCLUDED.status_raw, is_active = 1, source_file = EXCLUDED.source_file, updated_at = EXCLUDED.updated_at,
-         last_visit_date = CASE WHEN EXCLUDED.last_visit_date > COALESCE(establishments.last_visit_date, '')
-                                THEN EXCLUDED.last_visit_date ELSE establishments.last_visit_date END`,
-      [uuidv4(), r.code, r.name, r.address, r.center, r.activity, r.owner, r.phone, r.water, r.unit, r.status, r.last, r.file, now, now]
+         baseline_visit_date = EXCLUDED.baseline_visit_date`,
+      [uuidv4(), r.code, r.name, r.address, r.center, r.activity, r.owner, r.phone, r.water, r.unit, r.status, r.last, r.last, r.file, now, now]
     );
   }
   for (const r of all.filter((x) => x.closed)) {
     await run('UPDATE establishments SET is_active = 0 WHERE facility_code = ?', [r.code]);
   }
 
-  // Visits recorded in the system itself also count (latest date wins)
+  // last visit = latest of (Excel baseline, valid inspections made in the system)
   await run(
-    `UPDATE establishments e SET last_visit_date = x.d FROM (
-       SELECT f.facility_code AS code, MAX(SUBSTRING(i.created_at, 1, 10)) AS d
-       FROM inspections i JOIN facilities f ON f.id = i.facility_id
-       WHERE i.record_status = 'valid' AND i.visit_outcome = 'inspected' GROUP BY f.facility_code) x
-     WHERE e.facility_code = x.code AND x.d > COALESCE(e.last_visit_date, '')`
+    `UPDATE establishments e SET last_visit_date = GREATEST(COALESCE(e.baseline_visit_date, ''), COALESCE((
+       SELECT MAX(SUBSTRING(i.created_at, 1, 10)) FROM inspections i JOIN facilities f ON f.id = i.facility_id
+       WHERE f.facility_code = e.facility_code AND i.record_status = 'valid' AND i.visit_outcome = 'inspected'), ''))`
   );
 
   const est = await queryAll('SELECT center, COUNT(*) AS n FROM establishments WHERE is_active = 1 GROUP BY center ORDER BY center');

@@ -192,6 +192,11 @@ export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefre
     }
   };
 
+  const handlePlanFile = () => {
+    if (!planId) return;
+    window.open(api.planFileUrl(user.code, planId), '_blank');
+  };
+
   const handleExport = () => {
     if (!planId) return;
     const url = api.exportUrl(user.code, planId);
@@ -425,6 +430,18 @@ export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefre
                 ))}
               </div>
             )}
+
+            <button
+              type="button"
+              onClick={handlePlanFile}
+              style={{
+                width: '100%', padding: '12px', backgroundColor: COLORS.green, color: '#FFFFFF', borderRadius: '10px',
+                fontSize: '14px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+              }}
+            >
+              <FileSpreadsheetIcon size={18} color="#FFFFFF" />
+              <span>تصدير ملف خطة الشهر كاملة (Excel)</span>
+            </button>
 
             {/* Export Excel Button */}
             <button

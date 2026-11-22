@@ -140,6 +140,15 @@ export const api = {
     return base ? `${base}${path}` : path;
   },
 
+  rejectFacility: (code: string, facilityId: string, reason: string) =>
+    request(`/api/facilities/${facilityId}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }, code),
+
+  planFileUrl: (code: string, planId: string, center?: string) => {
+    const base = getServerUrl();
+    const path = `/api/plans/${planId}/plan.xlsx?code=${encodeURIComponent(code)}${center ? `&center=${encodeURIComponent(center)}` : ''}`;
+    return base ? `${base}${path}` : path;
+  },
+
   unlockFacility: (code: string, facilityId: string) =>
     request(`/api/facilities/${facilityId}/unlock`, { method: 'POST' }, code),
 
