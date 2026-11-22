@@ -171,7 +171,7 @@ export const LoginScreen: React.FC<Props> = ({ onLogin }) => {
           </label>
           <input
             type="text"
-            placeholder="مثال: ADMIN-2026 أو W101"
+            placeholder="مثال:  W101"
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             style={{
