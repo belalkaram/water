@@ -3,6 +3,7 @@ import { OFFICIAL_CENTERS } from '../constants';
 import { COLORS } from '../theme';
 import type { Facility, MonthlyPlan, User } from '../types';
 import { Chip } from '../components/Chip';
+import { FacilityCardSkeleton, SkeletonList, SummarySkeleton } from '../components/Skeleton';
 import { FacilityCard } from '../components/FacilityCard';
 import { RefreshCwIcon, RotateCcwIcon, SearchIcon, XIcon } from '../components/Icons';
 import { api } from '../api';
@@ -29,6 +30,7 @@ interface Props {
   onSelectFacility: (f: Facility) => void;
   onRefresh: () => void;
   refreshing: boolean;
+  loading?: boolean;
 }
 
 export const PlanScreen: React.FC<Props> = ({
@@ -40,6 +42,7 @@ export const PlanScreen: React.FC<Props> = ({
   onSelectFacility,
   onRefresh,
   refreshing,
+  loading = false,
 }) => {
   const [search, setSearch] = useState('');
   const [centerFilter, setCenterFilter] = useState('الكل');
@@ -305,6 +308,7 @@ export const PlanScreen: React.FC<Props> = ({
       ) : null}
 
       {/* Progress & KPI Summary Card */}
+      {loading && <SummarySkeleton />}
       <div
         style={{
           backgroundColor: '#FFFFFF',
@@ -312,7 +316,7 @@ export const PlanScreen: React.FC<Props> = ({
           padding: '12px 14px',
           border: `1px solid ${COLORS.border}`,
           boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
-          display: 'flex',
+          display: loading ? 'none' : 'flex',
           flexDirection: 'column',
           gap: '8px',
           flexShrink: 0,
@@ -583,7 +587,9 @@ export const PlanScreen: React.FC<Props> = ({
 
       {/* Facilities Cards List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '80px' }}>
-        {filteredFacilities.length === 0 ? (
+        {loading ? (
+          <SkeletonList count={6}><FacilityCardSkeleton /></SkeletonList>
+        ) : filteredFacilities.length === 0 ? (
           <div
             style={{
               textAlign: 'center',

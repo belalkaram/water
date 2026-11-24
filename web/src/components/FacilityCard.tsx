@@ -185,7 +185,7 @@ export const FacilityCard: React.FC<Props> = ({ facility, onClick }) => {
           )}
 
           <span style={{ fontSize: '11px', color: COLORS.muted, fontWeight: '600' }}>
-            آخر معاينة: <strong style={{ color: COLORS.ink }}>{facility.last_visit_date || 'لم تُعاين'}</strong>
+            آخر معاينة: <bdi dir="ltr"><strong style={{ color: COLORS.ink }}>{facility.last_visit_date || 'لم تُعاين'}</strong></bdi>
           </span>
 
           {facility.target_date && (

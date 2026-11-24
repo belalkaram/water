@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { COLORS } from '../theme';
 
 interface Props {
@@ -10,13 +10,19 @@ interface Props {
 }
 
 export const Chip: React.FC<Props> = ({ label, active, onClick, tone, badge }) => {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (active) ref.current?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }, [active]);
   const bg = active ? (tone ? tone.fg : COLORS.primary) : (tone ? tone.bg : COLORS.surface);
   const color = active ? '#FFFFFF' : (tone ? tone.fg : COLORS.ink);
   const border = active ? 'transparent' : (tone ? tone.fg + '44' : COLORS.border);
 
   return (
     <button
+      ref={ref}
       type="button"
+      aria-pressed={active}
       onClick={onClick}
       style={{
         display: 'inline-flex',

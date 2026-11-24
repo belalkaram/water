@@ -12,117 +12,116 @@ interface Props {
   followupCount?: number;
 }
 
+type TabDef = {
+  key: TabType;
+  label: string;
+  Icon: typeof ClipboardListIcon;
+  adminOnly?: boolean;
+};
+
+// Order follows reading direction (RTL): first item sits on the right.
+const TABS: TabDef[] = [
+  { key: 'plan', label: 'الخطة', Icon: ClipboardListIcon },
+  { key: 'feed', label: 'نشاط الفريق', Icon: MessageSquareIcon },
+  { key: 'followups', label: 'المتابعات', Icon: BellIcon },
+  { key: 'admin', label: 'الإدارة', Icon: SettingsIcon, adminOnly: true },
+];
+
 export const BottomNav: React.FC<Props> = ({ currentTab, onChangeTab, userRole, followupCount = 0 }) => {
-  const tabs: {
-    key: TabType;
-    label: string;
-    icon: (active: boolean) => React.ReactNode;
-    adminOnly?: boolean;
-  }[] = [
-    {
-      key: 'plan',
-      label: 'الخطة',
-      icon: (active) => (
-        <ClipboardListIcon size={22} color={active ? COLORS.primary : COLORS.muted} strokeWidth={active ? 2.4 : 2} />
-      ),
-    },
-    {
-      key: 'feed',
-      label: 'نشاط الفريق',
-      icon: (active) => (
-        <MessageSquareIcon size={22} color={active ? COLORS.primary : COLORS.muted} strokeWidth={active ? 2.4 : 2} />
-      ),
-    },
-    {
-      key: 'followups',
-      label: 'المتابعات',
-      icon: (active) => (
-        <BellIcon size={22} color={active ? COLORS.primary : COLORS.muted} strokeWidth={active ? 2.4 : 2} />
-      ),
-    },
-    {
-      key: 'admin',
-      label: 'الإدارة',
-      icon: (active) => (
-        <SettingsIcon size={22} color={active ? COLORS.primary : COLORS.muted} strokeWidth={active ? 2.4 : 2} />
-      ),
-      adminOnly: true,
-    },
-  ];
+  const visible = TABS.filter((t) => !t.adminOnly || userRole === 'admin');
 
   return (
     <nav
-      className="safe-bottom"
+      dir="rtl"
+      aria-label="التنقل الرئيسي"
+      className="bottom-nav"
       style={{
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-around',
+        alignItems: 'stretch',
+        direction: 'rtl',
         backgroundColor: COLORS.surface,
         borderTop: `1px solid ${COLORS.border}`,
-        position: 'sticky',
-        bottom: 0,
+        flexShrink: 0,
         zIndex: 30,
-        paddingTop: '6px',
-        paddingBottom: '8px',
-        boxShadow: '0 -2px 10px rgba(0,0,0,0.03)',
+        padding: '6px 8px calc(8px + env(safe-area-inset-bottom, 0px))',
+        gap: '4px',
+        boxShadow: '0 -4px 16px rgba(15, 41, 58, 0.06)',
       }}
     >
-      {tabs
-        .filter((t) => !t.adminOnly || userRole === 'admin')
-        .map((t) => {
-          const active = currentTab === t.key;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => onChangeTab(t.key)}
+      {visible.map(({ key, label, Icon }) => {
+        const active = currentTab === key;
+        const showBadge = key === 'followups' && followupCount > 0;
+        return (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onChangeTab(key)}
+            aria-current={active ? 'page' : undefined}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '2px',
+              padding: '4px 2px',
+              color: active ? COLORS.primary : COLORS.muted,
+            }}
+          >
+            <span
               style={{
-                flex: 1,
+                position: 'relative',
                 display: 'flex',
-                flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '3px',
-                color: active ? COLORS.primary : COLORS.muted,
-                position: 'relative',
-                padding: '4px 0',
+                width: '56px',
+                height: '30px',
+                borderRadius: '15px',
+                backgroundColor: active ? 'rgba(0, 107, 159, 0.12)' : 'transparent',
+                transition: 'background-color 0.2s ease',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '24px' }}>
-                {t.icon(active)}
-              </div>
-              <span
-                style={{
-                  fontSize: '11px',
-                  fontWeight: active ? '800' : '600',
-                  color: active ? COLORS.primary : COLORS.muted,
-                }}
-              >
-                {t.label}
-              </span>
-
-              {t.key === 'followups' && followupCount > 0 && (
+              <Icon size={22} color={active ? COLORS.primary : COLORS.muted} strokeWidth={active ? 2.4 : 2} />
+              {showBadge && (
                 <span
                   style={{
                     position: 'absolute',
-                    top: '2px',
-                    left: '50%',
-                    marginLeft: '8px',
+                    top: '-4px',
+                    insetInlineEnd: '4px',
+                    minWidth: '17px',
+                    height: '17px',
+                    padding: '0 4px',
+                    borderRadius: '9px',
                     backgroundColor: COLORS.amber,
-                    color: '#fff',
-                    borderRadius: '10px',
-                    padding: '0 5px',
+                    color: '#FFFFFF',
                     fontSize: '10px',
-                    fontWeight: '800',
-                    lineHeight: '16px',
+                    fontWeight: 800,
+                    lineHeight: '17px',
+                    textAlign: 'center',
+                    border: `2px solid ${COLORS.surface}`,
+                    boxSizing: 'content-box',
                   }}
                 >
-                  {followupCount}
+                  {followupCount > 99 ? '99+' : followupCount}
                 </span>
               )}
-            </button>
-          );
-        })}
+            </span>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: active ? 800 : 600,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: '100%',
+              }}
+            >
+              {label}
+            </span>
+          </button>
+        );
+      })}
     </nav>
   );
 };

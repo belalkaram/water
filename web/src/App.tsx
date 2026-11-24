@@ -44,6 +44,7 @@ export default function App() {
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [feed, setFeed] = useState<ActivityItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadedOnce, setLoadedOnce] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [activeFacility, setActiveFacility] = useState<Facility | null>(null);
@@ -122,6 +123,7 @@ export default function App() {
       } catch (err: any) {
         console.error('Refresh error:', err);
       } finally {
+        setLoadedOnce(true);
         setRefreshing(false);
       }
     },
@@ -237,12 +239,15 @@ export default function App() {
           selectedPlanId={selectedPlanId}
           onSelectPlan={(id) => {
             setSelectedPlanId(id);
+            setFacilities([]);
+            setFeed([]);
             refreshAll(user, id);
           }}
           facilities={facilities}
           onSelectFacility={(f) => setActiveFacility(f)}
           onRefresh={() => refreshAll(user, selectedPlanId)}
           refreshing={refreshing}
+          loading={!loadedOnce || (refreshing && facilities.length === 0)}
         />
       )}
 
@@ -251,6 +256,7 @@ export default function App() {
           feed={feed}
           onRefresh={() => refreshAll(user, selectedPlanId)}
           refreshing={refreshing}
+          loading={!loadedOnce || (refreshing && feed.length === 0)}
           onSelectFacilityId={handleOpenFacilityById}
         />
       )}

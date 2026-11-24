@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { FeedItemSkeleton, SkeletonList } from '../components/Skeleton';
 import { COLORS } from '../theme';
 import type { FollowupItem, User } from '../types';
 import { LEVEL_COLORS, LEVEL_LABELS } from '../constants';
@@ -121,6 +122,10 @@ export const FollowupsScreen: React.FC<Props> = ({ user, onFollowupCountChange }
         >
           {error}
         </div>
+      )}
+
+      {loading && items.length === 0 && (
+        <SkeletonList count={4}><FeedItemSkeleton /></SkeletonList>
       )}
 
       {items.length === 0 && !loading && (

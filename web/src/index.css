@@ -75,6 +75,23 @@ html, body {
   padding-bottom: env(safe-area-inset-bottom, 12px);
 }
 
+/* Skeleton loading */
+.skeleton {
+  background: linear-gradient(90deg, #E6EEF4 25%, #F3F8FB 45%, #E6EEF4 65%);
+  background-size: 200% 100%;
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}
+
 /* Keyframe animations */
 @keyframes slideUp {
   from {

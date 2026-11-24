@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { FeedItemSkeleton, SkeletonList } from '../components/Skeleton';
 import { COLORS } from '../theme';
 import type { ActivityItem } from '../types';
 import {
@@ -19,6 +20,7 @@ interface Props {
   feed: ActivityItem[];
   onRefresh: () => void;
   refreshing: boolean;
+  loading?: boolean;
   onSelectFacilityId?: (facilityId: string) => void;
 }
 
@@ -140,7 +142,7 @@ function renderActionBadge(action: string) {
   }
 }
 
-export const FeedScreen: React.FC<Props> = ({ feed, onRefresh, refreshing, onSelectFacilityId }) => {
+export const FeedScreen: React.FC<Props> = ({ feed, onRefresh, refreshing, loading = false, onSelectFacilityId }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [actionFilter, setActionFilter] = useState<ActionFilterType>('all');
   const [centerFilter, setCenterFilter] = useState<string>('الكل');
@@ -445,7 +447,9 @@ export const FeedScreen: React.FC<Props> = ({ feed, onRefresh, refreshing, onSel
       )}
 
       {/* Feed List or Empty State */}
-      {feed.length === 0 ? (
+      {loading ? (
+        <SkeletonList count={6}><FeedItemSkeleton /></SkeletonList>
+      ) : feed.length === 0 ? (
         <div
           style={{
             textAlign: 'center',
