@@ -1,4 +1,4 @@
-const CACHE_NAME = 'menoufia-v2';
+const CACHE_NAME = 'menoufia-v3';
 const STATIC_ASSETS = ['/manifest.json', '/logo.jpg'];
 
 self.addEventListener('install', (event) => {
