@@ -50,8 +50,8 @@ export interface Inspection {
   violation_level?: ViolationLevel;
   representative_name?: string;
   representative_phone?: string;
-  followup_required?: boolean;
-  followup_date?: string;
+  /** يوم المعاينة وسحب العينة (YYYY-MM-DD) */
+  visit_date?: string;
 }
 
 export interface FacilityHistory {
@@ -82,7 +82,7 @@ export interface Facility {
   activity_type?: string;
   visit_outcome?: VisitOutcome | '';
   history?: FacilityHistory | null;
-  has_followup?: boolean;
+  carried_from?: string;
   last_visit_date?: string;
   inspection?: Inspection | null;
 }
@@ -118,21 +118,7 @@ export interface PlanStats {
   violation_levels: Record<ViolationLevel, number>;
   total_samples: number;
   sample_types: { type: string; count: number }[];
-  open_followups: number;
   compliance_failures: { key: string; label: string; count: number }[];
-}
-
-export interface FollowupItem {
-  id: string;
-  facility_id: string;
-  facility_name: string;
-  center: string;
-  facility_code: string;
-  address: string;
-  worker_name: string;
-  violation_level: ViolationLevel;
-  followup_date: string;
-  notes: string;
 }
 
 export interface ConflictItem {

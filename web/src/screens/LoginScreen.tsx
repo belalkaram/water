@@ -116,7 +116,11 @@ export const LoginScreen: React.FC<Props> = ({ onLogin }) => {
       }}
     >
       <div
+        className="login-card"
         style={{
+          width: '100%',
+          maxWidth: '440px',
+          margin: '0 auto',
           backgroundColor: COLORS.surface,
           borderRadius: '24px',
           padding: '28px 20px',

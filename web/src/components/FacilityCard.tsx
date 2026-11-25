@@ -220,8 +220,8 @@ export const FacilityCard: React.FC<Props> = ({ facility, onClick }) => {
         </div>
       </div>
 
-      {/* Alert Badges (if any: followups, prior violations) */}
-      {(facility.has_followup ||
+      {/* Alert Badges (carried from a previous month, prior violations, incomplete visit) */}
+      {(Boolean(facility.carried_from) ||
         (facility.history && facility.history.worst !== 'none') ||
         (isCompleted && facility.inspection?.violation_level && facility.inspection.violation_level !== 'none') ||
         (isCompleted && facility.inspection?.visit_outcome && facility.inspection.visit_outcome !== 'inspected')) && (
@@ -233,13 +233,14 @@ export const FacilityCard: React.FC<Props> = ({ facility, onClick }) => {
             marginTop: '2px',
           }}
         >
-          {facility.has_followup && (
+          {facility.carried_from && (
             <span
+              title={facility.plan_notes || undefined}
               style={{
                 padding: '2px 8px',
                 borderRadius: '6px',
-                backgroundColor: COLORS.amberSoft,
-                color: COLORS.amber,
+                backgroundColor: '#EAF3F9',
+                color: COLORS.primary,
                 fontSize: '11px',
                 fontWeight: '700',
                 display: 'inline-flex',
@@ -247,8 +248,8 @@ export const FacilityCard: React.FC<Props> = ({ facility, onClick }) => {
                 gap: '3px',
               }}
             >
-              <AlertTriangleIcon size={12} color={COLORS.amber} />
-              <span>تحتاج متابعة</span>
+              <span aria-hidden="true">↩</span>
+              <span>مرحّلة من شهر سابق</span>
             </span>
           )}
 

@@ -7,6 +7,7 @@ import { FacilityCardSkeleton, SkeletonList, SummarySkeleton } from '../componen
 import { FacilityCard } from '../components/FacilityCard';
 import { RefreshCwIcon, RotateCcwIcon, SearchIcon, XIcon } from '../components/Icons';
 import { api } from '../api';
+import { ExportButtons } from '../components/ExportButtons';
 
 
 const ACTIVITY_TYPES = ['مطعم/مطبخ', 'مغسلة', 'مصنع', 'محطة/خدمات', 'مزرعة/مجزر', 'أخرى'];
@@ -174,7 +175,7 @@ export const PlanScreen: React.FC<Props> = ({
 
   return (
     <div
-      className="scroll-container"
+      className="scroll-container screen"
       style={{
         flex: 1,
         display: 'flex',
@@ -574,19 +575,10 @@ export const PlanScreen: React.FC<Props> = ({
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={() => window.open(api.planFileUrl(user.code, selectedPlanId, centerFilter !== 'الكل' ? centerFilter : undefined), '_blank')}
-        style={{
-          padding: '10px', backgroundColor: COLORS.surface, border: `1px solid ${COLORS.primary}`, color: COLORS.primary,
-          borderRadius: '10px', fontSize: '12px', fontWeight: '800', cursor: 'pointer',
-        }}
-      >
-        تصدير ملف الخطة (Excel){centerFilter !== 'الكل' ? ` — ${centerFilter}` : ''}
-      </button>
+      <ExportButtons userCode={user.code} planId={selectedPlanId} center={centerFilter} compact />
 
       {/* Facilities Cards List */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '80px' }}>
+      <div className="facility-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingBottom: '80px' }}>
         {loading ? (
           <SkeletonList count={6}><FacilityCardSkeleton /></SkeletonList>
         ) : filteredFacilities.length === 0 ? (

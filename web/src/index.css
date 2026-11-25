@@ -26,7 +26,7 @@ html, body {
   overflow: hidden;
   direction: rtl;
   text-align: right;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans Arabic", sans-serif;
+  font-family: "Cairo", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans Arabic", sans-serif;
   background-color: #0F293A; /* Desktop background backdrop */
   color: #0F293A;
   -webkit-font-smoothing: antialiased;
@@ -138,4 +138,128 @@ button:active {
 ::-webkit-scrollbar-thumb {
   background: #DCE6EE;
   border-radius: 4px;
+}
+
+/* ───────────────────────── Layout (shared) ───────────────────────── */
+.app-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.app-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* Card style used by newer form sections */
+.form-card {
+  background-color: #FFFFFF;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #DCE6EE;
+}
+
+/* Inspection form: full screen on phones */
+.inspection-overlay {
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* ───────────────────────── Tablet & desktop (≥ 900px) ───────────────────────── */
+@media (min-width: 900px) {
+  html, body { background-color: #E9F0F5; }
+
+  #root {
+    max-width: none;
+    box-shadow: none;
+  }
+
+  .top-bar {
+    padding: 12px 28px !important;
+    box-shadow: 0 1px 0 #DCE6EE, 0 6px 18px rgba(15, 41, 58, 0.04);
+  }
+
+  /* Navigation becomes a side rail on the right (RTL start) */
+  .app-body { flex-direction: row; }
+  .bottom-nav {
+    order: -1;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    width: 104px;
+    padding: 18px 10px !important;
+    gap: 6px !important;
+    border-top: none !important;
+    border-left: 1px solid #DCE6EE;
+    box-shadow: none !important;
+  }
+  .bottom-nav .nav-item {
+    flex: 0 0 auto !important;
+    padding: 10px 4px !important;
+    border-radius: 14px;
+  }
+  .bottom-nav .nav-item:hover { background-color: #F1F6FA; }
+  .bottom-nav .nav-pill { width: 60px !important; height: 34px !important; }
+  .bottom-nav .nav-label { font-size: 12.5px !important; margin-top: 4px; }
+
+  /* Screens: centered column with comfortable reading width; scrollbar stays at the window edge */
+  .screen {
+    padding-top: 22px !important;
+    padding-inline: max(24px, calc((100% - 1180px) / 2)) !important;
+    padding-bottom: 32px !important;
+  }
+
+  /* Facility cards in a responsive grid */
+  .facility-list {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 12px !important;
+    align-items: start;
+    padding-bottom: 24px !important;
+  }
+  .facility-list > :only-child { grid-column: 1 / -1; }
+
+  /* Admin dashboard: two columns of cards */
+  .admin-screen {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    gap: 16px !important;
+  }
+
+  /* Bottom sheet → centered dialog */
+  .sheet-overlay { align-items: center !important; padding: 24px; }
+  .sheet-panel {
+    max-width: 640px !important;
+    border-radius: 22px !important;
+    box-shadow: 0 24px 60px rgba(15, 41, 58, 0.28) !important;
+    animation: fadeIn 0.18s ease-out forwards !important;
+  }
+  .sheet-handle { display: none !important; }
+
+  /* Inspection form → centered panel over a dimmed backdrop */
+  .inspection-overlay {
+    background-color: rgba(15, 41, 58, 0.55) !important;
+    align-items: center;
+  }
+  .inspection-overlay > * {
+    width: 100%;
+    max-width: 780px;
+    margin-inline: auto;
+  }
+  .inspection-overlay > header,
+  .inspection-overlay > div:first-child { border-radius: 0; }
+  .inspection-overlay > .inspection-form {
+    background-color: #F4F8FB;
+    padding: 20px 28px 48px !important;
+  }
+
+  .login-card { padding: 40px 36px !important; }
+}
+
+@media (min-width: 900px) and (max-width: 1199px) {
+  .admin-screen { grid-template-columns: minmax(0, 1fr); }
 }

@@ -5,6 +5,7 @@ import { LEVEL_COLORS, LEVEL_LABELS, type ViolationLevel } from '../constants';
 import { api } from '../api';
 import { WorkersPanel } from '../components/WorkersPanel';
 import { MonthlyPlanPanel } from '../components/MonthlyPlanPanel';
+import { ExportButtons } from '../components/ExportButtons';
 import {
   AlertTriangleIcon,
   CheckCircleIcon,
@@ -192,15 +193,20 @@ export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefre
     }
   };
 
-  const handlePlanFile = () => {
-    if (!planId) return;
-    window.open(api.planFileUrl(user.code, planId), '_blank');
-  };
-
-  const handleExport = () => {
-    if (!planId) return;
-    const url = api.exportUrl(user.code, planId);
-    window.open(url, '_blank');
+  const [carrying, setCarrying] = useState(false);
+  const handleCarryOver = async () => {
+    setCarrying(true);
+    try {
+      const out = await api.carryOver(user.code);
+      onRefresh();
+      alert(out.carried > 0
+        ? `تم ترحيل ${out.carried} منشأة لم تتم إلى خطة الشهر الحالي`
+        : 'لا توجد منشآت متبقية تحتاج ترحيل — كل المتبقي موجود بالفعل في خطة الشهر الحالي');
+    } catch (err: any) {
+      alert('خطأ: ' + err.message);
+    } finally {
+      setCarrying(false);
+    }
   };
 
   const handleUnlock = async (facilityId: string) => {
@@ -247,7 +253,7 @@ export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefre
 
   return (
     <div
-      className="scroll-container"
+      className="scroll-container screen admin-screen"
       style={{
         flex: 1,
         padding: '14px',
@@ -270,7 +276,7 @@ export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefre
         }}
       >
         <h2 style={{ fontSize: '17px', fontWeight: '800', color: COLORS.ink }}>
-          لوحة المتابعة {stats ? `— ${stats.plan.month_label}` : ''}
+          لوحة الإحصائيات {stats ? `— ${stats.plan.month_label}` : ''}
         </h2>
 
         {statsError && <div style={{ color: COLORS.red, fontSize: '12px' }}>{statsError}</div>}
@@ -322,10 +328,10 @@ export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefre
                 }}
               >
                 <div style={{ fontSize: '20px', fontWeight: '800', color: COLORS.amber }}>
-                  {stats.open_followups}
+                  {stats.totals.available + stats.totals.reserved}
                 </div>
                 <div style={{ fontSize: '11px', color: COLORS.muted, fontWeight: '700', marginTop: '2px' }}>
-                  متابعات مفتوحة
+                  متبقي في الخطة
                 </div>
               </div>
             </div>
@@ -431,39 +437,22 @@ export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefre
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={handlePlanFile}
-              style={{
-                width: '100%', padding: '12px', backgroundColor: COLORS.green, color: '#FFFFFF', borderRadius: '10px',
-                fontSize: '14px', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-              }}
-            >
-              <FileSpreadsheetIcon size={18} color="#FFFFFF" />
-              <span>تصدير ملف خطة الشهر كاملة (Excel)</span>
-            </button>
+            <div style={{ fontSize: '13px', fontWeight: '800', color: COLORS.primary, marginTop: '4px' }}>
+              تصدير خطة الشهر (اسم المنشأة، الكود، العنوان، المدينة، تاريخ آخر معاينة، حالة الخطة)
+            </div>
+            <ExportButtons userCode={user.code} planId={planId} />
 
-            {/* Export Excel Button */}
             <button
               type="button"
-              onClick={handleExport}
+              onClick={handleCarryOver}
+              disabled={carrying}
               style={{
-                width: '100%',
-                padding: '12px',
-                backgroundColor: COLORS.primary,
-                color: '#FFFFFF',
-                borderRadius: '10px',
-                fontSize: '14px',
-                fontWeight: '800',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                marginTop: '4px',
+                width: '100%', padding: '12px', backgroundColor: COLORS.surface, color: COLORS.primary,
+                border: `1.5px dashed ${COLORS.primary}`, borderRadius: '12px', fontSize: '13px', fontWeight: '800',
+                opacity: carrying ? 0.6 : 1,
               }}
             >
-              <FileSpreadsheetIcon size={18} color="#FFFFFF" />
-              <span>تصدير تقرير الشهر (Excel)</span>
+              {carrying ? 'جارٍ الترحيل…' : 'ترحيل المتبقي من الشهر السابق إلى خطة الشهر الحالي'}
             </button>
           </>
         )}
@@ -814,7 +803,7 @@ export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefre
                 marginTop: '4px',
               }}
             >
-              تم ومتابعة الخطة
+              تم
             </button>
           </div>
         )}

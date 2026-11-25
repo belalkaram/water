@@ -9,7 +9,6 @@ import { InspectionForm } from './components/InspectionForm';
 import { LoginScreen } from './screens/LoginScreen';
 import { PlanScreen } from './screens/PlanScreen';
 import { FeedScreen } from './screens/FeedScreen';
-import { FollowupsScreen } from './screens/FollowupsScreen';
 import { AdminScreen } from './screens/AdminScreen';
 import { clearAllCookies, getCookie, removeCookie, setCookie } from './utils/cookies';
 
@@ -49,7 +48,6 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [activeFacility, setActiveFacility] = useState<Facility | null>(null);
   const [inspectingFacility, setInspectingFacility] = useState<Facility | null>(null);
-  const [followupCount, setFollowupCount] = useState(0);
 
   // Handle PWA BeforeInstallPrompt
   useEffect(() => {
@@ -106,7 +104,7 @@ export default function App() {
     async (currentUser: User, planIdOverride?: string) => {
       setRefreshing(true);
       try {
-        const { plans: loadedPlans } = await api.getPlans(currentUser.code);
+        const loadedPlans = (await api.getPlans(currentUser.code)).plans || [];
         setPlans(loadedPlans);
         const ym = new Date().toISOString().slice(0, 7);
         const targetPlanId = planIdOverride || selectedPlanId || loadedPlans.find((p) => p.plan_month === ym)?.id || loadedPlans[0]?.id || '';
@@ -117,8 +115,8 @@ export default function App() {
             api.getFacilities(currentUser.code, targetPlanId),
             api.getFeed(currentUser.code, targetPlanId),
           ]);
-          setFacilities(facRes.facilities);
-          setFeed(feedRes.feed);
+          setFacilities(facRes.facilities || []);
+          setFeed(feedRes.feed || []);
         }
       } catch (err: any) {
         console.error('Refresh error:', err);
@@ -198,6 +196,7 @@ export default function App() {
 
   return (
     <div
+      className="app-shell"
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -231,6 +230,8 @@ export default function App() {
         </div>
       )}
 
+      <div className="app-body">
+      <main className="app-main">
       {/* Main Screens */}
       {tab === 'plan' && (
         <PlanScreen
@@ -261,10 +262,6 @@ export default function App() {
         />
       )}
 
-      {tab === 'followups' && (
-        <FollowupsScreen user={user} onFollowupCountChange={setFollowupCount} />
-      )}
-
       {tab === 'admin' && user.role === 'admin' && (
         <AdminScreen
           user={user}
@@ -274,13 +271,15 @@ export default function App() {
         />
       )}
 
-      {/* Mobile Bottom Navigation */}
+      </main>
+
+      {/* Navigation: bottom bar on mobile, side rail on desktop */}
       <BottomNav
         currentTab={tab}
         onChangeTab={setTab}
         userRole={user.role}
-        followupCount={followupCount}
       />
+      </div>
 
       {/* Bottom Sheet Modal for Facility Detail */}
       <BottomSheet isOpen={Boolean(activeFacility)} onClose={() => setActiveFacility(null)}>

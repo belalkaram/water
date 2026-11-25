@@ -13,7 +13,8 @@ function getPool() {
     }
     pool = new Pool({
       connectionString: connStr,
-      ssl: { rejectUnauthorized: false },
+      // Local development databases usually run without SSL
+      ssl: /@(localhost|127\.0\.0\.1)[:/]/.test(connStr) ? false : { rejectUnauthorized: false },
       max: 10,
     });
   }
@@ -190,6 +191,11 @@ async function initDb() {
   await p.query(`ALTER TABLE activity_feed ADD COLUMN IF NOT EXISTS inspection_id TEXT`);
   await p.query(`ALTER TABLE activity_feed DROP CONSTRAINT IF EXISTS activity_feed_action_check`);
   await p.query(`ALTER TABLE inspections ADD COLUMN IF NOT EXISTS reject_reason TEXT DEFAULT ''`);
+  // v2: worker-entered inspection day + carry-over tracking
+  await p.query(`ALTER TABLE inspections ADD COLUMN IF NOT EXISTS visit_date TEXT DEFAULT ''`);
+  await p.query(`UPDATE inspections SET visit_date = SUBSTRING(created_at, 1, 10) WHERE COALESCE(visit_date, '') = ''`);
+  await p.query(`ALTER TABLE facilities ADD COLUMN IF NOT EXISTS carried_from TEXT DEFAULT ''`);
+  await p.query(`CREATE INDEX IF NOT EXISTS idx_fac_code ON facilities(facility_code)`);
   await p.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_plans_month ON plans(plan_month) WHERE plan_month IS NOT NULL`);
   await p.query(`CREATE INDEX IF NOT EXISTS idx_est_center ON establishments(center, is_active)`);
 

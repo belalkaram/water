@@ -190,7 +190,7 @@ export const FeedScreen: React.FC<Props> = ({ feed, onRefresh, refreshing, loadi
 
   return (
     <div
-      className="scroll-container"
+      className="scroll-container screen"
       style={{
         flex: 1,
         padding: '14px',

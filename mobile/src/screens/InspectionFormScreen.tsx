@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import SignatureScreen, { SignatureViewRef } from 'react-native-signature-canvas';
@@ -16,6 +16,7 @@ import {
   ViolationLevel,
   VisitOutcome,
   suggestViolationLevel,
+  todayYmd,
 } from '../constants/domain';
 
 interface Props {
@@ -56,8 +57,8 @@ export default function InspectionFormScreen({ user, facility, onDone, onCancel 
   const [levelTouched, setLevelTouched] = useState(false);
   const [repName, setRepName] = useState('');
   const [repPhone, setRepPhone] = useState('');
-  const [followup, setFollowup] = useState(false);
-  const [followupDate, setFollowupDate] = useState('');
+  // يوم المعاينة وسحب العينة — يحدّث تاريخ آخر معاينة ويبدأ منه عدّ الـ 6 شهور
+  const [visitDate, setVisitDate] = useState(todayYmd());
   const [notes, setNotes] = useState('');
   const [gps, setGps] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
   const [signature, setSignature] = useState('');
@@ -79,8 +80,7 @@ export default function InspectionFormScreen({ user, facility, onDone, onCancel 
         setLevelTouched(!!d.levelTouched);
         setRepName(d.repName ?? '');
         setRepPhone(d.repPhone ?? '');
-        setFollowup(!!d.followup);
-        setFollowupDate(d.followupDate ?? '');
+        if (d.visitDate) setVisitDate(d.visitDate);
         setNotes(d.notes ?? '');
         setGps(d.gps ?? null);
         setSignature(d.signature ?? '');
@@ -96,11 +96,11 @@ export default function InspectionFormScreen({ user, facility, onDone, onCancel 
     const t = setTimeout(() => {
       AsyncStorage.setItem(
         draftKey(facility.id),
-        JSON.stringify({ outcome, samples, compliance, level, levelTouched, repName, repPhone, followup, followupDate, notes, gps, signature })
+        JSON.stringify({ outcome, samples, compliance, level, levelTouched, repName, repPhone, visitDate, notes, gps, signature })
       ).catch(() => undefined);
     }, 600);
     return () => clearTimeout(t);
-  }, [draftLoaded, outcome, samples, compliance, level, levelTouched, repName, repPhone, followup, followupDate, notes, gps, signature]);
+  }, [draftLoaded, outcome, samples, compliance, level, levelTouched, repName, repPhone, visitDate, notes, gps, signature]);
 
   // Suggest a violation level from the checklist until the inspector sets one manually
   useEffect(() => {
@@ -158,9 +158,16 @@ export default function InspectionFormScreen({ user, facility, onDone, onCancel 
       Alert.alert('تنبيه', 'يرجى تسجيل التوقيع قبل إنهاء المعاينة');
       return;
     }
-    if (followup && followupDate.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(followupDate.trim())) {
-      Alert.alert('تنبيه', 'اكتب تاريخ المتابعة بصيغة 2026-12-15');
-      return;
+    if (isInspected) {
+      const vd = visitDate.trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(vd) || Number.isNaN(new Date(`${vd}T00:00:00`).getTime())) {
+        Alert.alert('تنبيه', 'اكتب تاريخ المعاينة (يوم سحب العينة) بصيغة 2026-11-25');
+        return;
+      }
+      if (vd > todayYmd()) {
+        Alert.alert('تنبيه', 'تاريخ المعاينة لا يمكن أن يكون في المستقبل');
+        return;
+      }
     }
     setSubmitting(true);
     try {
@@ -171,8 +178,7 @@ export default function InspectionFormScreen({ user, facility, onDone, onCancel 
         violation_level: isInspected ? level : 'none',
         representative_name: repName.trim(),
         representative_phone: repPhone.trim(),
-        followup_required: followup,
-        followup_date: followup ? followupDate.trim() : '',
+        visit_date: isInspected ? visitDate.trim() : '',
         notes: notes.trim(),
         gps_lat: gps?.lat ?? null,
         gps_lng: gps?.lng ?? null,
@@ -234,6 +240,19 @@ export default function InspectionFormScreen({ user, facility, onDone, onCancel 
         </View>
         {!isInspected && <Text style={styles.hint}>اكتب السبب في الملاحظات بالأسفل. سيتم قفل المكان كزيارة غير مكتملة ويمكن للأدمن إعادة فتحه.</Text>}
       </View>
+
+      {isInspected && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>تاريخ المعاينة (يوم سحب العينة) *</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="مثال: 2026-11-25"
+            value={visitDate}
+            onChangeText={setVisitDate}
+            keyboardType="numbers-and-punctuation"
+          />
+        </View>
+      )}
 
       {isInspected && (
         <>
@@ -351,16 +370,6 @@ export default function InspectionFormScreen({ user, facility, onDone, onCancel 
           value={notes}
           onChangeText={setNotes}
         />
-      </View>
-
-      <View style={styles.section}>
-        <View style={styles.switchRow}>
-          <Switch value={followup} onValueChange={setFollowup} />
-          <Text style={styles.sectionTitleInline}>تحتاج المنشأة لمتابعة / زيارة لاحقة</Text>
-        </View>
-        {followup && (
-          <TextInput style={[styles.input, { marginTop: 10 }]} placeholder="تاريخ المتابعة (اختياري) مثل 2026-12-15" value={followupDate} onChangeText={setFollowupDate} />
-        )}
       </View>
 
       <View style={styles.section}>

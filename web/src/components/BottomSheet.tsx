@@ -49,6 +49,7 @@ export const BottomSheet: React.FC<Props> = ({ isOpen, onClose, children }) => {
 
   return (
     <div
+      className="sheet-overlay"
       style={{
         position: 'fixed',
         inset: 0,
@@ -73,11 +74,11 @@ export const BottomSheet: React.FC<Props> = ({ isOpen, onClose, children }) => {
       {/* Sheet Content */}
       <div
         ref={sheetRef}
-        className="animate-slide-up safe-bottom"
+        className="animate-slide-up safe-bottom sheet-panel"
         style={{
           position: 'relative',
           width: '100%',
-          maxWidth: '500px',
+          maxWidth: '560px',
           maxHeight: '92vh',
           backgroundColor: COLORS.surface,
           borderTopLeftRadius: '22px',
@@ -95,6 +96,7 @@ export const BottomSheet: React.FC<Props> = ({ isOpen, onClose, children }) => {
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
+          className="sheet-handle"
           style={{
             width: '100%',
             padding: '12px 0 8px 0',

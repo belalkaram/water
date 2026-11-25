@@ -180,7 +180,7 @@ export default function AdminScreen({ user, facilities, planId, onRefresh }: Pro
             <View style={styles.kpiRow}>
               <View style={styles.kpi}><Text style={styles.kpiValue}>{stats.totals.completion_rate}%</Text><Text style={styles.kpiLabel}>الإنجاز</Text></View>
               <View style={styles.kpi}><Text style={styles.kpiValue}>{stats.total_samples}</Text><Text style={styles.kpiLabel}>إجمالي العينات</Text></View>
-              <View style={styles.kpi}><Text style={[styles.kpiValue, { color: COLORS.amber }]}>{stats.open_followups}</Text><Text style={styles.kpiLabel}>متابعات مفتوحة</Text></View>
+              <View style={styles.kpi}><Text style={[styles.kpiValue, { color: COLORS.amber }]}>{stats.totals.available + stats.totals.reserved}</Text><Text style={styles.kpiLabel}>متبقي في الخطة</Text></View>
             </View>
 
             <Text style={styles.subTitle}>الإنجاز حسب المركز</Text>

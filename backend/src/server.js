@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
-const xlsx = require('xlsx');
 const { v4: uuidv4 } = require('uuid');
 const { initDb, queryAll, queryOne, run, transaction } = require('./db');
 const { parseExcelRows } = require('./utils/centerParser');
@@ -10,7 +9,10 @@ const { parsePdfBuffer } = require('./utils/pdfParser');
 const { parsePlanFile } = require('./utils/universalParser');
 const { normalizePayload, hydrateInspection } = require('./utils/inspectionPayload');
 const C = require('./constants');
-const { previewMonthlyPlan, generateMonthlyPlan, currentYm, monthLabel } = require('./utils/monthlyPlan');
+const {
+  previewMonthlyPlan, generateMonthlyPlan, carryOverUnfinished, ensureCurrentMonth, currentYm, monthLabel, ymFromLabel,
+} = require('./utils/monthlyPlan');
+const { buildPlanReport, buildPlanWorkbook, reportFileName } = require('./utils/planExport');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -145,13 +147,13 @@ async function logActivity({ plan_id, facility_id = null, facility_name, center 
 
 // ─── Main registry (establishments) helpers ───────────────────────────────────
 
-// last visit = latest of (Excel baseline, newest VALID 'inspected' inspection made in the app)
+// last visit = latest of (Excel baseline, the inspection day typed by the worker on the newest VALID 'inspected' inspection)
 async function refreshLastVisit(codes) {
   const list = [...new Set(codes.filter(Boolean))];
   if (list.length === 0) return;
   await run(
     `UPDATE establishments e SET updated_at = ?, last_visit_date = GREATEST(COALESCE(e.baseline_visit_date, ''), COALESCE((
-       SELECT MAX(SUBSTRING(i.created_at, 1, 10)) FROM inspections i JOIN facilities f ON f.id = i.facility_id
+       SELECT MAX(COALESCE(NULLIF(i.visit_date, ''), SUBSTRING(i.created_at, 1, 10))) FROM inspections i JOIN facilities f ON f.id = i.facility_id
        WHERE f.facility_code = e.facility_code AND i.record_status = 'valid' AND i.visit_outcome = 'inspected'), ''))
      WHERE e.facility_code IN (${list.map(() => '?').join(',')})`,
     [new Date().toISOString(), ...list]
@@ -242,6 +244,25 @@ async function expireStaleReservations(planId) {
   return stale.length;
 }
 
+// A facility inspected late in an older plan (e.g. offline sync after the month rolled over) may already have
+// been carried into a later plan. Remove those later copies while nobody has started on them.
+async function dropLaterOpenCopies(facility) {
+  const plan = await queryOne('SELECT plan_month FROM plans WHERE id = ?', [facility.plan_id]);
+  if (!plan || !plan.plan_month) return 0;
+  const copies = await queryAll(
+    `SELECT f.id, f.plan_id FROM facilities f JOIN plans p ON p.id = f.plan_id
+     WHERE f.facility_code = ? AND f.id <> ? AND f.status = 'available' AND p.plan_month > ?
+       AND NOT EXISTS (SELECT 1 FROM inspections i WHERE i.facility_id = f.id)`,
+    [facility.facility_code, facility.id, plan.plan_month]
+  );
+  for (const c of copies) {
+    await run('DELETE FROM activity_feed WHERE facility_id = ?', [c.id]);
+    await run('DELETE FROM facilities WHERE id = ?', [c.id]);
+    await run('UPDATE plans SET total_facilities = GREATEST(0, total_facilities - 1) WHERE id = ?', [c.plan_id]);
+  }
+  return copies.length;
+}
+
 async function recordInspection(facility, user, payload, createdAt, { viaSync = false } = {}) {
   if (payload.client_id) {
     const dup = await queryOne('SELECT * FROM inspections WHERE client_id = ?', [payload.client_id]);
@@ -265,16 +286,17 @@ async function recordInspection(facility, user, payload, createdAt, { viaSync = 
       `INSERT INTO inspections
        (id, facility_id, plan_id, worker_id, worker_name, samples_json, notes, gps_lat, gps_lng, gps_accuracy, signature_base64,
         created_at, synced_at, visit_outcome, compliance_json, violation_level, representative_name, representative_phone,
-        followup_required, followup_date, client_id, record_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        followup_required, followup_date, client_id, record_status, visit_date)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', ?, ?, ?)`,
       [
         inspId, facility.id, facility.plan_id, user.id, user.name, JSON.stringify(payload.samples), payload.notes,
         payload.gps_lat, payload.gps_lng, payload.gps_accuracy, payload.signature_base64,
         createdAt || now, now,
         payload.visit_outcome, JSON.stringify(payload.compliance), payload.violation_level,
         payload.representative_name, payload.representative_phone,
-        payload.followup_required, payload.followup_date, payload.client_id || '',
+        payload.client_id || '',
         isConflict ? 'conflict' : 'valid',
+        payload.visit_date || '',
       ]
     );
     if (!isConflict) {
@@ -293,10 +315,11 @@ async function recordInspection(facility, user, payload, createdAt, { viaSync = 
   if (!isConflict && payload.visit_outcome === 'inspected') {
     await refreshLastVisit([facility.facility_code]);
     await run('UPDATE establishments SET reinspect_flag = 0 WHERE facility_code = ?', [facility.facility_code]);
+    await dropLaterOpenCopies(facility);
   }
 
   const summary = payload.visit_outcome === 'inspected'
-    ? `أتم المعاينة${viaSync ? ' (متزامن)' : ''} في ${facility.name} (${payload.samples.length} نوع / ${totalCount} عينة)` +
+    ? `أتم المعاينة${viaSync ? ' (متزامن)' : ''} في ${facility.name} بتاريخ ${payload.visit_date} (${payload.samples.length} نوع / ${totalCount} عينة)` +
       (payload.violation_level !== 'none' ? ` — مخالفة ${C.LEVEL_LABELS[payload.violation_level]}` : '')
     : `زيارة ${facility.name}: ${outcomeLabel}`;
 
@@ -457,7 +480,8 @@ app.get('/api/meta', authMiddleware, (req, res) => {
 app.get('/api/plans', authMiddleware, async (req, res, next) => {
   try {
     // Safety net: if the cron missed the 1st of the month, create this month's plan on first access.
-    try { await generateMonthlyPlan(currentYm(), { generatedBy: 'auto' }); } catch (e) { console.error('auto plan:', e.message); }
+    // Also moves whatever was left unfinished last month into this month's plan (idempotent).
+    try { await ensureCurrentMonth(); } catch (e) { console.error('auto plan:', e.message); }
     const plans = await queryAll('SELECT * FROM plans ORDER BY created_at DESC');
     res.json({ plans });
   } catch (err) { next(err); }
@@ -480,7 +504,18 @@ app.post('/api/plans/generate-monthly', authMiddleware, adminOnly, async (req, r
     if (!out.created) {
       return res.status(409).json({ error: out.empty ? 'لا توجد منشآت مستحقة في هذا الشهر' : `${monthLabel(ym)} موجودة بالفعل` });
     }
-    res.status(201).json({ plan: out.plan, inserted: out.total });
+    res.status(201).json({ plan: out.plan, inserted: out.total, carried: out.carried || 0 });
+  } catch (err) { next(err); }
+});
+
+// Admin: move what is left of the previous month's plan into the given month (default: current month)
+app.post('/api/plans/carry-over', authMiddleware, adminOnly, async (req, res, next) => {
+  try {
+    const ym = String(req.body.month || currentYm());
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) return res.status(400).json({ error: 'صيغة الشهر غير صحيحة (YYYY-MM)' });
+    const out = await carryOverUnfinished(ym, { userName: req.user.name, userId: req.user.id });
+    if (out.reason === 'no_plan') return res.status(404).json({ error: `لا توجد ${monthLabel(ym)} بعد — ولّدها أولاً` });
+    res.json({ month: ym, carried: out.carried, from: out.from || null });
   } catch (err) { next(err); }
 });
 
@@ -489,8 +524,7 @@ app.get('/api/cron/monthly-plan', async (req, res, next) => {
   try {
     const secret = process.env.CRON_SECRET;
     if (!secret || req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ error: 'unauthorized' });
-    const out = await generateMonthlyPlan(currentYm(), { generatedBy: 'auto' });
-    res.json({ month: currentYm(), created: out.created, total: out.total || 0 });
+    res.json(await ensureCurrentMonth());
   } catch (err) { next(err); }
 });
 
@@ -546,11 +580,14 @@ app.post(
 
       const planId = uuidv4();
       const now = new Date().toISOString();
+      // Give uploaded plans a calendar month (when the label names one that is still free) so carry-over works for them
+      let planMonth = ymFromLabel(monthLabel);
+      if (planMonth && (await queryOne('SELECT id FROM plans WHERE plan_month = ?', [planMonth]))) planMonth = null;
 
       await transaction(async ({ run: tRun }) => {
         await tRun(
-          'INSERT INTO plans (id, month_label, filename, uploaded_by, total_facilities, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-          [planId, monthLabel, req.file.originalname || 'plan.xlsx', req.user.name, parsed.length, now]
+          'INSERT INTO plans (id, month_label, filename, uploaded_by, total_facilities, created_at, plan_month, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [planId, monthLabel, req.file.originalname || 'plan.xlsx', req.user.name, parsed.length, now, planMonth, 'import']
         );
 
         const CHUNK_SIZE = 40;
@@ -660,15 +697,11 @@ app.get('/api/plans/:planId/facilities', authMiddleware, async (req, res, next) 
         prior[r.code].worst = r.level;
     }
 
-    const followupRows = await queryAll("SELECT facility_id FROM inspections WHERE followup_required = 1 AND record_status = 'valid'");
-    const openFollowups = new Set(followupRows.map((r) => r.facility_id));
-
     res.json({
       facilities: (await attachLastVisit(facilities)).map((f) => ({
         ...f,
         inspection: inspByFacility[f.id] || null,
         history: prior[f.facility_code] || null,
-        has_followup: openFollowups.has(f.id),
       })),
     });
   } catch (err) { next(err); }
@@ -704,17 +737,11 @@ app.get('/api/facilities/:id', authMiddleware, async (req, res, next) => {
       last_at: priorRows[0].at,
     } : null;
 
-    const followup = await queryOne(
-      "SELECT id FROM inspections WHERE facility_id = ? AND followup_required = 1 AND record_status = 'valid' LIMIT 1",
-      [facility.id]
-    );
-
     res.json({
       facility: {
         ...(await attachLastVisit([facility]))[0],
         inspection: insp ? hydrateInspection(insp) : null,
         history,
-        has_followup: Boolean(followup),
       },
     });
   } catch (err) { next(err); }
@@ -827,45 +854,43 @@ app.post('/api/facilities/:id/reject', authMiddleware, adminOnly, async (req, re
   } catch (err) { next(err); }
 });
 
-// Month plan file from the main registry — admins get everything, workers only their cities
-app.get('/api/plans/:planId/plan.xlsx', authFromQuery, authMiddleware, async (req, res, next) => {
+// Excel / PDF downloads authenticate via ?code= because they are opened as plain links
+function authFromQuery(req, res, next) {
+  if (!req.headers['x-user-code'] && req.query.code) req.headers['x-user-code'] = String(req.query.code);
+  next();
+}
+
+async function loadReport(req, res) {
+  const plan = await queryOne('SELECT * FROM plans WHERE id = ?', [req.params.planId]);
+  if (!plan) { res.status(404).json({ error: 'الخطة غير موجودة' }); return null; }
+  const center = String(req.query.center || '').trim();
+  if (center && !canAccessCenter(req.user, center)) { res.status(403).json(FORBIDDEN_CENTER); return null; }
+  await expireStaleReservations(plan.id);
+  return buildPlanReport(plan, centerScope(req.user, 'f.center'), center && center !== 'الكل' ? center : '');
+}
+
+// Report rows (اسم المنشأة، الكود، العنوان، المدينة، تاريخ آخر معاينة، حالة الخطة) — used for the PDF export
+app.get('/api/plans/:planId/report', authMiddleware, async (req, res, next) => {
   try {
-    const plan = await queryOne('SELECT * FROM plans WHERE id = ?', [req.params.planId]);
-    if (!plan) return res.status(404).json({ error: 'الخطة غير موجودة' });
-    const scope = centerScope(req.user);
-    const center = String(req.query.center || '').trim();
-    const facilities = await queryAll(
-      `SELECT * FROM facilities WHERE plan_id = ?${scope.sql}${center ? ' AND center = ?' : ''} ORDER BY center, serial_no ASC`,
-      [plan.id, ...scope.params, ...(center ? [center] : [])]
-    );
-    const codes = facilities.map((f) => f.facility_code);
-    const ests = codes.length
-      ? await queryAll(`SELECT * FROM establishments WHERE facility_code IN (${codes.map(() => '?').join(',')})`, codes)
-      : [];
-    const estMap = Object.fromEntries(ests.map((e) => [e.facility_code, e]));
-    const statusLabel = { available: 'لم تتم', reserved: 'في الطريق', completed: 'تمت' };
-    const rows = facilities.map((f, idx) => {
-      const e = estMap[f.facility_code] || {};
-      return {
-        'م': idx + 1, 'اسم المنشأة': f.name, 'الكود': f.facility_code, 'المدينة': f.center, 'العنوان': f.address,
-        'النشاط': f.activity_type || e.activity_type || '', 'صاحب المنشأة': e.owner || '', 'وسيلة الاتصال': e.phone || '',
-        'كمية المياه (م3/شهر)': e.water_qty || '', 'وحدة المعالجة': e.treatment_unit || '',
-        'تاريخ آخر معاينة': e.last_visit_date || 'لم تُعاين',
-        'حالة الخطة': statusLabel[f.status] || f.status,
-        'المعاين': f.completed_by_name || '', 'تاريخ التنفيذ': f.completed_at ? String(f.completed_at).slice(0, 10) : '',
-        'ملاحظات': f.plan_notes || '',
-      };
-    });
-    const wb = xlsx.utils.book_new();
-    wb.Workbook = { Views: [{ RTL: true }] };
-    xlsx.utils.book_append_sheet(wb, xlsx.utils.json_to_sheet(rows), plan.month_label.slice(0, 28));
-    const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="plan-${plan.plan_month || plan.id.slice(0, 8)}.xlsx"`);
-    res.send(buf);
+    const report = await loadReport(req, res);
+    if (report) res.json({ ...report, file_name: reportFileName(report, 'pdf') });
   } catch (err) { next(err); }
 });
 
+// Styled Excel of the plan — admins get every city, workers only their own cities
+async function sendPlanExcel(req, res, next) {
+  try {
+    const report = await loadReport(req, res);
+    if (!report) return;
+    const buf = await buildPlanWorkbook(report);
+    const name = reportFileName(report, 'xlsx');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="plan.xlsx"; filename*=UTF-8''${encodeURIComponent(name)}`);
+    res.send(Buffer.from(buf));
+  } catch (err) { next(err); }
+}
+app.get('/api/plans/:planId/export.xlsx', authFromQuery, authMiddleware, sendPlanExcel);
+app.get('/api/plans/:planId/plan.xlsx', authFromQuery, authMiddleware, sendPlanExcel);
 // Admin: unlock a facility (backward compatibility)
 app.post('/api/facilities/:id/unlock', authMiddleware, adminOnly, async (req, res, next) => {
   try {
@@ -1168,52 +1193,12 @@ app.delete('/api/facilities/:id', authMiddleware, adminOnly, async (req, res, ne
   }
 });
 
-// Admin: Dismiss / complete a followup
-app.post('/api/followups/:id/dismiss', authMiddleware, adminOnly, async (req, res, next) => {
-  try {
-    const inspection = await queryOne('SELECT * FROM inspections WHERE id = ?', [req.params.id]);
-    if (!inspection) return res.status(404).json({ error: 'سجل المعاينة غير موجود' });
-
-    await run('UPDATE inspections SET followup_required = 0 WHERE id = ?', [inspection.id]);
-    res.json({ success: true });
-  } catch (err) {
-    next(err);
-  }
-});
-
 // Activity feed
 app.get('/api/plans/:planId/feed', authMiddleware, async (req, res, next) => {
   try {
     const scope = centerScope(req.user);
     const feed = await queryAll(`SELECT * FROM activity_feed WHERE plan_id = ?${scope.sql} ORDER BY created_at DESC LIMIT 150`, [req.params.planId, ...scope.params]);
     res.json({ feed });
-  } catch (err) { next(err); }
-});
-
-// Follow-ups
-app.get('/api/followups', authMiddleware, async (req, res, next) => {
-  try {
-    const scope = centerScope(req.user, 'f.center');
-    const rows = await queryAll(
-      `SELECT i.id, i.facility_id, i.worker_name, i.violation_level, i.followup_date, i.created_at, i.notes,
-              f.name AS facility_name, f.center, f.facility_code, f.address
-       FROM inspections i JOIN facilities f ON f.id = i.facility_id
-       WHERE i.followup_required = 1 AND i.record_status = 'valid'${scope.sql}
-       ORDER BY CASE WHEN i.followup_date = '' THEN 1 ELSE 0 END, i.followup_date ASC`,
-      scope.params
-    );
-    res.json({ followups: await attachLastVisit(rows) });
-  } catch (err) { next(err); }
-});
-
-app.post('/api/inspections/:id/followup-done', authMiddleware, async (req, res, next) => {
-  try {
-    const insp = await queryOne('SELECT * FROM inspections WHERE id = ?', [req.params.id]);
-    if (!insp) return res.status(404).json({ error: 'المعاينة غير موجودة' });
-    const fac = await queryOne('SELECT center FROM facilities WHERE id = ?', [insp.facility_id]);
-    if (fac && !canAccessCenter(req.user, fac.center)) return res.status(403).json(FORBIDDEN_CENTER);
-    await run('UPDATE inspections SET followup_required = 0 WHERE id = ?', [insp.id]);
-    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
@@ -1293,20 +1278,19 @@ app.get('/api/plans/:planId/stats', authMiddleware, async (req, res, next) => {
     const levels = { none: 0, minor: 0, major: 0, critical: 0 };
     const sampleTypes = {};
     let totalSamples = 0;
-    let followups = 0;
     const complianceFails = {};
     for (const i of insp) {
       const w = (byWorkerMap[i.worker_name] = byWorkerMap[i.worker_name] || { worker_name: i.worker_name, visits: 0, samples: 0 });
       w.visits += 1;
       outcomes[i.visit_outcome] = (outcomes[i.visit_outcome] || 0) + 1;
       if (i.visit_outcome === 'inspected') levels[i.violation_level] = (levels[i.violation_level] || 0) + 1;
-      if (i.followup_required) followups += 1;
       for (const s of i.samples) {
         w.samples += s.count;
         totalSamples += s.count;
         sampleTypes[s.type] = (sampleTypes[s.type] || 0) + s.count;
       }
       for (const [k, v] of Object.entries(i.compliance)) {
+        if (!C.COMPLIANCE_LABELS[k]) continue;
         const bad = k === 'illegal_connection' ? v === 'yes' : v === 'no';
         if (bad) complianceFails[k] = (complianceFails[k] || 0) + 1;
       }
@@ -1325,76 +1309,10 @@ app.get('/api/plans/:planId/stats', authMiddleware, async (req, res, next) => {
       violation_levels: levels,
       total_samples: totalSamples,
       sample_types: Object.entries(sampleTypes).map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count),
-      open_followups: followups,
       compliance_failures: Object.entries(complianceFails)
         .map(([key, count]) => ({ key, label: C.COMPLIANCE_LABELS[key], count }))
         .sort((a, b) => b.count - a.count),
     });
-  } catch (err) { next(err); }
-});
-
-// Excel export (admin)
-function authFromQuery(req, res, next) {
-  if (!req.headers['x-user-code'] && req.query.code) req.headers['x-user-code'] = String(req.query.code);
-  next();
-}
-
-app.get('/api/plans/:planId/export.xlsx', authFromQuery, authMiddleware, adminOnly, async (req, res, next) => {
-  try {
-    const plan = await queryOne('SELECT * FROM plans WHERE id = ?', [req.params.planId]);
-    if (!plan) return res.status(404).json({ error: 'الخطة غير موجودة' });
-
-    const facilities = await queryAll('SELECT * FROM facilities WHERE plan_id = ? ORDER BY serial_no ASC', [plan.id]);
-    const inspections = (await queryAll("SELECT * FROM inspections WHERE plan_id = ? AND record_status = 'valid'", [plan.id])).map(hydrateInspection);
-    const inspByFacility = Object.fromEntries(inspections.map((i) => [i.facility_id, i]));
-    const statusLabel = { available: 'متاح', reserved: 'في الطريق', completed: 'تم' };
-    const yn = { yes: 'نعم', no: 'لا', na: 'لا ينطبق' };
-
-    const facilityRows = facilities.map((f) => {
-      const i = inspByFacility[f.id];
-      const row = {
-        'التسلسل': f.serial_no, 'اسم المنشأة': f.name, 'العنوان': f.address, 'المركز': f.center,
-        'الكود': f.facility_code, 'النشاط': f.activity_type || '', 'تاريخ الخطة': f.target_date,
-        'الحالة': statusLabel[f.status], 'نتيجة الزيارة': i ? C.OUTCOME_LABELS[i.visit_outcome] : '',
-        'المعاين': i ? i.worker_name : '', 'تاريخ التنفيذ': i ? i.created_at.slice(0, 16).replace('T', ' ') : '',
-        'عدد أنواع العينات': i ? i.samples.length : '', 'إجمالي العينات': i ? i.samples.reduce((a, s) => a + s.count, 0) : '',
-        'مستوى المخالفة': i ? C.LEVEL_LABELS[i.violation_level] : '',
-        'ممثل المنشأة': i ? i.representative_name : '', 'هاتف الممثل': i ? i.representative_phone : '',
-        'يحتاج متابعة': i ? (i.followup_required ? `نعم ${i.followup_date || ''}`.trim() : 'لا') : '',
-        'GPS': i && i.gps_lat ? `${i.gps_lat}, ${i.gps_lng}` : '', 'ملاحظات': i ? i.notes : '',
-      };
-      for (const [k, label] of Object.entries(C.COMPLIANCE_LABELS)) row[label] = i && i.compliance[k] ? yn[i.compliance[k]] : '';
-      return row;
-    });
-
-    const sampleRows = [];
-    for (const f of facilities) {
-      const i = inspByFacility[f.id];
-      if (!i) continue;
-      i.samples.forEach((s) => sampleRows.push({
-        'المنشأة': f.name, 'المركز': f.center, 'كود المنشأة': f.facility_code, 'كود العينة': s.code || '',
-        'اسم العينة': s.name, 'النوع': s.type, 'العدد': s.count,
-        'pH': s.ph ?? '', 'الحرارة °م': s.temperature ?? '', 'المعاين': i.worker_name,
-      }));
-    }
-
-    const centerRows = await queryAll(
-      `SELECT center AS "المركز", COUNT(*) AS "الإجمالي",
-              SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS "تم",
-              SUM(CASE WHEN status = 'reserved'  THEN 1 ELSE 0 END) AS "في الطريق"
-       FROM facilities WHERE plan_id = ? GROUP BY center`, [plan.id]
-    );
-
-    const wb = xlsx.utils.book_new();
-    wb.Workbook = { Views: [{ RTL: true }] };
-    xlsx.utils.book_append_sheet(wb, xlsx.utils.json_to_sheet(facilityRows), 'المعاينات');
-    xlsx.utils.book_append_sheet(wb, xlsx.utils.json_to_sheet(sampleRows), 'العينات');
-    xlsx.utils.book_append_sheet(wb, xlsx.utils.json_to_sheet(centerRows), 'ملخص المراكز');
-    const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="report-${plan.id.slice(0, 8)}.xlsx"`);
-    res.send(buf);
   } catch (err) { next(err); }
 });
 
@@ -1448,7 +1366,9 @@ app.post('/api/sync/batch', authMiddleware, async (req, res, next) => {
         }
         results.push({ queue_id: op.queue_id, facility_name: facility.name, status: 'applied' });
       } else if (op.action === 'complete') {
-        const checked = normalizePayload({ ...(op.payload || {}), client_id: op.payload?.client_id || op.queue_id }, facility);
+        const checked = normalizePayload(
+          { ...(op.payload || {}), client_id: op.payload?.client_id || op.queue_id }, facility, { recordedAt: op.created_at }
+        );
         if (!checked.ok) {
           results.push({ queue_id: op.queue_id, facility_name: facility.name, status: 'rejected', reason: checked.error });
           continue;

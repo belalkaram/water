@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ActivityItem, ConflictItem, Facility, FollowupItem, MonthlyPlan, PlanStats, User } from '../types';
+import { ActivityItem, ConflictItem, Facility, MonthlyPlan, PlanStats, User } from '../types';
 
 const SERVER_URL_KEY = 'menoufia_server_url';
 const DEFAULT_SERVER_URL = 'http://192.168.1.10:4000';
@@ -76,11 +76,6 @@ export const api = {
   getStats: (code: string, planId: string): Promise<PlanStats> =>
     request(`/api/plans/${planId}/stats`, { method: 'GET' }, code),
 
-  getFollowups: (code: string): Promise<{ followups: FollowupItem[] }> =>
-    request('/api/followups', { method: 'GET' }, code),
-
-  markFollowupDone: (code: string, inspectionId: string) =>
-    request(`/api/inspections/${inspectionId}/followup-done`, { method: 'POST' }, code),
 
   getConflicts: (code: string): Promise<{ conflicts: ConflictItem[] }> =>
     request('/api/conflicts', { method: 'GET' }, code),

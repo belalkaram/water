@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { OFFICIAL_CENTERS } from '../constants';
+import { OFFICIAL_CENTERS, formatYmd } from '../constants';
 import { COLORS } from '../theme';
 import type { Facility, User } from '../types';
 import { COMPLIANCE_ITEMS, LEVEL_COLORS, LEVEL_LABELS, OUTCOME_LABELS } from '../constants';
@@ -395,7 +395,7 @@ export const FacilityDetail: React.FC<Props> = ({
 
           <div style={{ fontSize: '12px', color: COLORS.primary, fontWeight: '700', marginTop: '4px', textAlign: 'right' }}>
             نوع النشاط: {facility.activity_type || 'أخرى'}
-            {` • آخر معاينة: ${facility.last_visit_date || 'لم تُعاين'}`}
+            {` • آخر معاينة: ${formatYmd(facility.last_visit_date) || 'لم تُعاين'}`}
             {facility.target_date ? ` • تاريخ الخطة: ${facility.target_date}` : ''}
           </div>
 
@@ -595,9 +595,9 @@ export const FacilityDetail: React.FC<Props> = ({
                 <strong>{facility.inspection.worker_name}</strong>
               </span>
             </div>
-            {facility.inspection.created_at && (
-              <span style={{ fontSize: '11px', color: COLORS.muted }}>
-                {new Date(facility.inspection.created_at).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+            {(facility.inspection.visit_date || facility.inspection.created_at) && (
+              <span style={{ fontSize: '11px', color: COLORS.muted, whiteSpace: 'nowrap' }}>
+                يوم المعاينة: {formatYmd(facility.inspection.visit_date || facility.inspection.created_at)}
               </span>
             )}
           </div>
@@ -694,11 +694,6 @@ export const FacilityDetail: React.FC<Props> = ({
             </div>
           )}
 
-          {facility.inspection.followup_required && (
-            <div style={{ fontSize: '12px', color: COLORS.amber, fontWeight: '700' }}>
-              تحتاج متابعة{facility.inspection.followup_date ? ` بتاريخ ${facility.inspection.followup_date}` : ''}
-            </div>
-          )}
 
           {facility.inspection.gps_lat && facility.inspection.gps_lng && (
             <button

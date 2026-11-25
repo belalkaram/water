@@ -51,8 +51,8 @@ export interface Inspection {
   violation_level?: ViolationLevel;
   representative_name?: string;
   representative_phone?: string;
-  followup_required?: boolean;
-  followup_date?: string;
+  /** يوم المعاينة وسحب العينة كما كتبه الموظف (YYYY-MM-DD) */
+  visit_date?: string;
 }
 
 export interface FacilityHistory {
@@ -83,7 +83,8 @@ export interface Facility {
   activity_type?: string;
   visit_outcome?: VisitOutcome | '';
   history?: FacilityHistory | null;
-  has_followup?: boolean;
+  /** لو الصف مرحّل من خطة سابقة: شهرها YYYY-MM */
+  carried_from?: string;
   last_visit_date?: string;
   inspection?: Inspection | null;
 }
@@ -96,7 +97,7 @@ export interface ActivityItem {
   center: string;
   worker_id: string;
   worker_name: string;
-  action: 'reserved' | 'released' | 'expired' | 'completed' | 'unlocked' | 'plan_uploaded' | 'rejected';
+  action: 'reserved' | 'released' | 'expired' | 'completed' | 'unlocked' | 'plan_uploaded' | 'rejected' | 'carried_over';
   summary: string;
   created_at: string;
 }
@@ -111,21 +112,34 @@ export interface PlanStats {
   violation_levels: Record<ViolationLevel, number>;
   total_samples: number;
   sample_types: { type: string; count: number }[];
-  open_followups: number;
   compliance_failures: { key: string; label: string; count: number }[];
 }
 
-export interface FollowupItem {
-  id: string;
-  facility_id: string;
-  facility_name: string;
-  center: string;
-  facility_code: string;
+export type ReportState = 'done' | 'in_progress' | 'pending' | 'failed';
+
+export interface ReportRow {
+  n: number;
+  name: string;
+  code: string;
   address: string;
-  worker_name: string;
-  violation_level: ViolationLevel;
-  followup_date: string;
-  notes: string;
+  center: string;
+  last_visit: string;
+  status: string;
+  state: ReportState;
+  carried: boolean;
+}
+
+/** تقرير الخطة: الأعمدة الستة (اسم المنشأة، الكود، العنوان، المدينة، تاريخ آخر معاينة، حالة الخطة) */
+export interface PlanReport {
+  company: string;
+  title: string;
+  plan_month: string;
+  scope_label: string;
+  exported_at: string;
+  columns: { key: string; header: string }[];
+  rows: ReportRow[];
+  summary: { total: number; done: number; in_progress: number; pending: number; carried: number; rate: number };
+  file_name: string;
 }
 
 export interface ConflictItem {

@@ -13,6 +13,7 @@ interface Props {
 export const TopBar: React.FC<Props> = ({ user, onLogout, deferredPrompt, onInstall }) => {
   return (
     <header
+      className="top-bar"
       style={{
         display: 'flex',
         alignItems: 'center',

@@ -30,7 +30,6 @@ import { ActivityItem, Facility, MonthlyPlan, User } from './src/types';
 import LoginScreen from './src/screens/LoginScreen';
 import InspectionFormScreen from './src/screens/InspectionFormScreen';
 import AdminScreen from './src/screens/AdminScreen';
-import FollowupsScreen from './src/screens/FollowupsScreen';
 import { COMPLIANCE_ITEMS, LEVEL_COLORS, LEVEL_LABELS, OUTCOME_LABELS } from './src/constants/domain';
 
 type StatusFilter = 'all' | 'available' | 'reserved' | 'completed' | 'mine';
@@ -46,7 +45,7 @@ I18nManager.allowRTL(true);
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [tab, setTab] = useState<'plan' | 'feed' | 'followups' | 'admin'>('plan');
+  const [tab, setTab] = useState<'plan' | 'feed' | 'admin'>('plan');
   const [plans, setPlans] = useState<MonthlyPlan[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState<string>('');
   const [facilities, setFacilities] = useState<Facility[]>([]);
@@ -333,9 +332,9 @@ export default function App() {
                 </Text>
                 <Text style={styles.facilityMeta}>آخر معاينة: {item.last_visit_date || 'لم تُعاين'}</Text>
                 <View style={styles.badgeRow}>
-                  {item.has_followup && (
-                    <View style={[styles.badge, { backgroundColor: COLORS.amberSoft }]}>
-                      <Text style={[styles.badgeText, { color: COLORS.amber }]}>تحتاج متابعة</Text>
+                  {!!item.carried_from && (
+                    <View style={[styles.badge, { backgroundColor: '#EAF3F9' }]}>
+                      <Text style={[styles.badgeText, { color: COLORS.primary }]}>مرحّلة من شهر سابق</Text>
                     </View>
                   )}
                   {item.history && item.history.worst !== 'none' && (
@@ -391,7 +390,6 @@ export default function App() {
         />
       )}
 
-      {tab === 'followups' && <FollowupsScreen user={user} />}
 
       {activeFacility && (
         <View style={styles.modalBackdrop}>
@@ -477,11 +475,6 @@ export default function App() {
                     </Text>
                   )}
                   {!!activeFacility.inspection.notes && <Text style={styles.sampleLine}>ملاحظات: {activeFacility.inspection.notes}</Text>}
-                  {activeFacility.inspection.followup_required && (
-                    <Text style={[styles.sampleLine, { color: COLORS.amber, fontWeight: '700' }]}>
-                      تحتاج متابعة{activeFacility.inspection.followup_date ? ` بتاريخ ${activeFacility.inspection.followup_date}` : ''}
-                    </Text>
-                  )}
                   {!!activeFacility.inspection.gps_lat && (
                     <TouchableOpacity
                       onPress={() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${activeFacility.inspection!.gps_lat},${activeFacility.inspection!.gps_lng}`)}
@@ -539,9 +532,6 @@ export default function App() {
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => setTab('feed')}>
           <Text style={[styles.navText, tab === 'feed' && styles.navActive]}>نشاط الفريق</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => setTab('followups')}>
-          <Text style={[styles.navText, tab === 'followups' && styles.navActive]}>المتابعات</Text>
         </TouchableOpacity>
         {user.role === 'admin' && (
           <TouchableOpacity style={styles.navItem} onPress={() => setTab('admin')}>

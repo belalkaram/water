@@ -3,12 +3,10 @@ const VISIT_OUTCOMES = ['inspected', 'closed', 'refused', 'not_found', 'other'];
 const VIOLATION_LEVELS = ['none', 'minor', 'major', 'critical'];
 const COMPLIANCE_ANSWERS = ['yes', 'no', 'na'];
 const COMPLIANCE_KEYS = [
-  'has_discharge_permit',
   'pretreatment_present',
   'pretreatment_working',
   'grease_trap_present',
   'grease_trap_clean',
-  'sampling_point_accessible',
   'illegal_connection',
 ];
 // المدن الرسمية = أسماء ملفات الإكسيل العشرة فقط (لا تزيد ولا تنقص)
@@ -17,6 +15,8 @@ const OFFICIAL_CENTERS = [
   'سرس الليان', 'شبين الكوم', 'قويسنا', 'قويسنا المنطقة الصناعية', 'منوف',
 ];
 const REVISIT_MONTHS = 6;
+// أقصى عدد أيام مسموح للرجوع بتاريخ المعاينة (لمنع الأخطاء الكتابية)
+const VISIT_DATE_MAX_AGE_DAYS = 90;
 const RESERVATION_TTL_HOURS = Number(process.env.RESERVATION_TTL_HOURS || 6);
 
 const OUTCOME_LABELS = {
@@ -28,17 +28,15 @@ const OUTCOME_LABELS = {
 };
 const LEVEL_LABELS = { none: 'لا توجد مخالفة', minor: 'بسيطة', major: 'جسيمة', critical: 'خطيرة' };
 const COMPLIANCE_LABELS = {
-  has_discharge_permit: 'يوجد ترخيص صرف',
   pretreatment_present: 'توجد وحدة معالجة مبدئية',
   pretreatment_working: 'وحدة المعالجة تعمل',
   grease_trap_present: 'توجد مصيدة شحوم',
   grease_trap_clean: 'مصيدة الشحوم نظيفة',
-  sampling_point_accessible: 'نقطة سحب العينة متاحة',
   illegal_connection: 'توجد توصيلة مخالفة',
 };
 
 module.exports = {
-  OFFICIAL_CENTERS, REVISIT_MONTHS,
+  OFFICIAL_CENTERS, REVISIT_MONTHS, VISIT_DATE_MAX_AGE_DAYS,
   VISIT_OUTCOMES, VIOLATION_LEVELS, COMPLIANCE_ANSWERS, COMPLIANCE_KEYS,
   RESERVATION_TTL_HOURS, OUTCOME_LABELS, LEVEL_LABELS, COMPLIANCE_LABELS,
 };

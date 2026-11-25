@@ -1,15 +1,14 @@
 import React from 'react';
 import { COLORS } from '../theme';
 import type { UserRole } from '../types';
-import { BellIcon, ClipboardListIcon, MessageSquareIcon, SettingsIcon } from './Icons';
+import { ClipboardListIcon, MessageSquareIcon, SettingsIcon } from './Icons';
 
-export type TabType = 'plan' | 'feed' | 'followups' | 'admin';
+export type TabType = 'plan' | 'feed' | 'admin';
 
 interface Props {
   currentTab: TabType;
   onChangeTab: (tab: TabType) => void;
   userRole: UserRole;
-  followupCount?: number;
 }
 
 type TabDef = {
@@ -23,11 +22,10 @@ type TabDef = {
 const TABS: TabDef[] = [
   { key: 'plan', label: 'الخطة', Icon: ClipboardListIcon },
   { key: 'feed', label: 'نشاط الفريق', Icon: MessageSquareIcon },
-  { key: 'followups', label: 'المتابعات', Icon: BellIcon },
   { key: 'admin', label: 'الإدارة', Icon: SettingsIcon, adminOnly: true },
 ];
 
-export const BottomNav: React.FC<Props> = ({ currentTab, onChangeTab, userRole, followupCount = 0 }) => {
+export const BottomNav: React.FC<Props> = ({ currentTab, onChangeTab, userRole }) => {
   const visible = TABS.filter((t) => !t.adminOnly || userRole === 'admin');
 
   return (
@@ -50,12 +48,12 @@ export const BottomNav: React.FC<Props> = ({ currentTab, onChangeTab, userRole, 
     >
       {visible.map(({ key, label, Icon }) => {
         const active = currentTab === key;
-        const showBadge = key === 'followups' && followupCount > 0;
         return (
           <button
             key={key}
             type="button"
             onClick={() => onChangeTab(key)}
+            className={`nav-item${active ? ' active' : ''}`}
             aria-current={active ? 'page' : undefined}
             style={{
               flex: 1,
@@ -70,6 +68,7 @@ export const BottomNav: React.FC<Props> = ({ currentTab, onChangeTab, userRole, 
             }}
           >
             <span
+              className="nav-pill"
               style={{
                 position: 'relative',
                 display: 'flex',
@@ -83,31 +82,9 @@ export const BottomNav: React.FC<Props> = ({ currentTab, onChangeTab, userRole, 
               }}
             >
               <Icon size={22} color={active ? COLORS.primary : COLORS.muted} strokeWidth={active ? 2.4 : 2} />
-              {showBadge && (
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: '-4px',
-                    insetInlineEnd: '4px',
-                    minWidth: '17px',
-                    height: '17px',
-                    padding: '0 4px',
-                    borderRadius: '9px',
-                    backgroundColor: COLORS.amber,
-                    color: '#FFFFFF',
-                    fontSize: '10px',
-                    fontWeight: 800,
-                    lineHeight: '17px',
-                    textAlign: 'center',
-                    border: `2px solid ${COLORS.surface}`,
-                    boxSizing: 'content-box',
-                  }}
-                >
-                  {followupCount > 99 ? '99+' : followupCount}
-                </span>
-              )}
             </span>
             <span
+              className="nav-label"
               style={{
                 fontSize: '11px',
                 fontWeight: active ? 800 : 600,

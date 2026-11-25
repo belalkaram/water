@@ -1,4 +1,4 @@
-import type { ActivityItem, ConflictItem, Facility, FollowupItem, MonthlyPlan, PlanStats, User } from './types';
+import type { ActivityItem, ConflictItem, Facility, MonthlyPlan, PlanReport, PlanStats, User } from './types';
 
 const DEFAULT_API_URL = (import.meta.env.VITE_API_URL as string | undefined) || (import.meta.env.PROD ? '' : 'http://localhost:4000');
 const SERVER_URL_KEY = 'menoufia_server_url';
@@ -122,32 +122,28 @@ export const api = {
   getStats: (code: string, planId: string): Promise<PlanStats> =>
     request(`/api/plans/${planId}/stats`, { method: 'GET' }, code),
 
-  getFollowups: (code: string): Promise<{ followups: FollowupItem[] }> =>
-    request('/api/followups', { method: 'GET' }, code),
-
-  markFollowupDone: (code: string, inspectionId: string) =>
-    request(`/api/inspections/${inspectionId}/followup-done`, { method: 'POST' }, code),
-
   getConflicts: (code: string): Promise<{ conflicts: ConflictItem[] }> =>
     request('/api/conflicts', { method: 'GET' }, code),
 
   resolveConflict: (code: string, id: string, decision: 'discard' | 'replace') =>
     request(`/api/conflicts/${id}/resolve`, { method: 'POST', body: JSON.stringify({ decision }) }, code),
 
-  exportUrl: (code: string, planId: string) => {
+  /** Styled Excel of the plan (admin: all cities, worker: own cities only) */
+  exportUrl: (code: string, planId: string, center?: string) => {
     const base = getServerUrl();
-    const path = `/api/plans/${planId}/export.xlsx?code=${encodeURIComponent(code)}`;
+    const path = `/api/plans/${planId}/export.xlsx?code=${encodeURIComponent(code)}${center ? `&center=${encodeURIComponent(center)}` : ''}`;
     return base ? `${base}${path}` : path;
   },
+
+  /** Report rows used to build the PDF */
+  getReport: (code: string, planId: string, center?: string): Promise<PlanReport> =>
+    request(`/api/plans/${planId}/report${center ? `?center=${encodeURIComponent(center)}` : ''}`, { method: 'GET' }, code),
+
+  carryOver: (code: string, month?: string): Promise<{ month: string; carried: number; from: string | null }> =>
+    request('/api/plans/carry-over', { method: 'POST', body: JSON.stringify(month ? { month } : {}) }, code),
 
   rejectFacility: (code: string, facilityId: string, reason: string) =>
     request(`/api/facilities/${facilityId}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }, code),
-
-  planFileUrl: (code: string, planId: string, center?: string) => {
-    const base = getServerUrl();
-    const path = `/api/plans/${planId}/plan.xlsx?code=${encodeURIComponent(code)}${center ? `&center=${encodeURIComponent(center)}` : ''}`;
-    return base ? `${base}${path}` : path;
-  },
 
   unlockFacility: (code: string, facilityId: string) =>
     request(`/api/facilities/${facilityId}/unlock`, { method: 'POST' }, code),
@@ -171,9 +167,6 @@ export const api = {
 
   deleteFacility: (code: string, facilityId: string) =>
     request(`/api/facilities/${facilityId}`, { method: 'DELETE' }, code),
-
-  dismissFollowup: (code: string, inspectionId: string) =>
-    request(`/api/followups/${inspectionId}/dismiss`, { method: 'POST' }, code),
 
   getWorkers: (code: string): Promise<{ workers: User[] }> =>
     request('/api/workers', { method: 'GET' }, code),

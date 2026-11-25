@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { COLORS } from '../theme';
 import type { Facility, SampleItem, User } from '../types';
 import {
@@ -8,6 +8,9 @@ import {
   LEVEL_LABELS,
   OUTCOME_LABELS,
   SAMPLE_TYPE_PRESETS,
+  VISIT_DATE_MAX_AGE_DAYS,
+  formatYmd,
+  todayYmd,
   type ViolationLevel,
   type VisitOutcome,
   suggestViolationLevel,
@@ -44,14 +47,21 @@ export const InspectionForm: React.FC<Props> = ({ user, facility, onDone, onCanc
   const [levelTouched, setLevelTouched] = useState(false);
   const [repName, setRepName] = useState('');
   const [repPhone, setRepPhone] = useState('');
-  const [followup, setFollowup] = useState(false);
-  const [followupDate, setFollowupDate] = useState('');
+  // يوم المعاينة وسحب العينة — هو اللي بيحدّث "تاريخ آخر معاينة" ويبدأ منه عدّ الـ 6 شهور
+  const [visitDate, setVisitDate] = useState(todayYmd());
   const [notes, setNotes] = useState('');
   const [gps, setGps] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
   const [signature, setSignature] = useState('');
   const [showSigPad, setShowSigPad] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Always open the form at the top (the browser may otherwise keep a previous scroll offset)
+  useEffect(() => {
+    const id = requestAnimationFrame(() => formRef.current?.scrollTo({ top: 0 }));
+    return () => cancelAnimationFrame(id);
+  }, [facility.id]);
 
   // Load draft from localStorage
   useEffect(() => {
@@ -66,8 +76,7 @@ export const InspectionForm: React.FC<Props> = ({ user, facility, onDone, onCanc
         if (d.levelTouched) setLevelTouched(d.levelTouched);
         if (d.repName) setRepName(d.repName);
         if (d.repPhone) setRepPhone(d.repPhone);
-        if (d.followup !== undefined) setFollowup(d.followup);
-        if (d.followupDate) setFollowupDate(d.followupDate);
+        if (d.visitDate) setVisitDate(d.visitDate);
         if (d.notes) setNotes(d.notes);
         if (d.gps) setGps(d.gps);
         if (d.signature) setSignature(d.signature);
@@ -96,8 +105,7 @@ export const InspectionForm: React.FC<Props> = ({ user, facility, onDone, onCanc
             levelTouched,
             repName,
             repPhone,
-            followup,
-            followupDate,
+            visitDate,
             notes,
             gps,
             signature,
@@ -108,7 +116,7 @@ export const InspectionForm: React.FC<Props> = ({ user, facility, onDone, onCanc
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [draftLoaded, facility.id, outcome, samples, compliance, level, levelTouched, repName, repPhone, followup, followupDate, notes, gps, signature]);
+  }, [draftLoaded, facility.id, outcome, samples, compliance, level, levelTouched, repName, repPhone, visitDate, notes, gps, signature]);
 
   // Suggest violation level automatically
   useEffect(() => {
@@ -151,6 +159,8 @@ export const InspectionForm: React.FC<Props> = ({ user, facility, onDone, onCanc
   };
 
   const isInspected = outcome === 'inspected';
+  const maxVisitDate = todayYmd();
+  const minVisitDate = todayYmd(new Date(Date.now() - VISIT_DATE_MAX_AGE_DAYS * 24 * 3600 * 1000));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -174,9 +184,19 @@ export const InspectionForm: React.FC<Props> = ({ user, facility, onDone, onCanc
       alert('يرجى تسجيل التوقيع قبل إنهاء المعاينة');
       return;
     }
-    if (followup && followupDate.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(followupDate.trim())) {
-      alert('اكتب تاريخ المتابعة بصيغة YYYY-MM-DD (مثال: 2026-12-15)');
-      return;
+    if (isInspected) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(visitDate)) {
+        alert('اكتب تاريخ المعاينة (يوم سحب العينة)');
+        return;
+      }
+      if (visitDate > maxVisitDate) {
+        alert('تاريخ المعاينة لا يمكن أن يكون في المستقبل');
+        return;
+      }
+      if (visitDate < minVisitDate) {
+        alert(`تاريخ المعاينة أقدم من ${VISIT_DATE_MAX_AGE_DAYS} يوماً — راجع التاريخ المكتوب`);
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -188,8 +208,7 @@ export const InspectionForm: React.FC<Props> = ({ user, facility, onDone, onCanc
         violation_level: isInspected ? level : 'none',
         representative_name: repName.trim(),
         representative_phone: repPhone.trim(),
-        followup_required: followup,
-        followup_date: followup ? followupDate.trim() : '',
+        visit_date: isInspected ? visitDate : '',
         notes: notes.trim(),
         gps_lat: gps?.lat ?? null,
         gps_lng: gps?.lng ?? null,
@@ -213,11 +232,10 @@ export const InspectionForm: React.FC<Props> = ({ user, facility, onDone, onCanc
 
   return (
     <div
+      className="inspection-overlay"
       style={{
         position: 'fixed',
         inset: 0,
-        maxWidth: '500px',
-        margin: '0 auto',
         zIndex: 50,
         backgroundColor: COLORS.bg,
         display: 'flex',
@@ -260,8 +278,9 @@ export const InspectionForm: React.FC<Props> = ({ user, facility, onDone, onCanc
 
       {/* Scrollable Form Body */}
       <form
+        ref={formRef}
         onSubmit={handleSubmit}
-        className="scroll-container"
+        className="scroll-container inspection-form"
         style={{
           flex: 1,
           padding: '14px',
@@ -318,6 +337,41 @@ export const InspectionForm: React.FC<Props> = ({ user, facility, onDone, onCanc
             </div>
           )}
         </div>
+
+        {/* Visit (sampling) date */}
+        {isInspected && (
+          <div className="form-card" style={{ border: `1.5px solid ${COLORS.primary}` }}>
+            <label htmlFor="visit-date" style={{ display: 'block', fontSize: '14px', fontWeight: '800', color: COLORS.ink, marginBottom: '4px' }}>
+              تاريخ المعاينة (يوم سحب العينة) <span style={{ color: COLORS.red }}>*</span>
+            </label>
+            <div style={{ fontSize: '12px', color: COLORS.muted, marginBottom: '8px', lineHeight: 1.6 }}>
+              هذا التاريخ يحدّث «تاريخ آخر معاينة» في الخطة الأساسية فوراً، ومنه يبدأ عدّ الـ 6 شهور للمعاينة القادمة.
+            </div>
+            <input
+              id="visit-date"
+              type="date"
+              required
+              value={visitDate}
+              min={minVisitDate}
+              max={maxVisitDate}
+              onChange={(e) => setVisitDate(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '10px',
+                border: `1px solid ${COLORS.border}`,
+                backgroundColor: '#FFF',
+                fontWeight: 700,
+                color: COLORS.ink,
+              }}
+            />
+            {visitDate && (
+              <div style={{ fontSize: '12px', color: COLORS.primary, fontWeight: 700, marginTop: '6px' }}>
+                {visitDate === maxVisitDate ? 'اليوم — ' : ''}{formatYmd(visitDate)}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Samples Section */}
         {isInspected && (
@@ -669,50 +723,6 @@ export const InspectionForm: React.FC<Props> = ({ user, facility, onDone, onCanc
               resize: 'vertical',
             }}
           />
-        </div>
-
-        {/* Followup Toggle */}
-        <div
-          style={{
-            backgroundColor: COLORS.surface,
-            padding: '14px',
-            borderRadius: '14px',
-            border: `1px solid ${COLORS.border}`,
-          }}
-        >
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer',
-            }}
-          >
-            <span style={{ fontSize: '14px', fontWeight: '700', color: COLORS.ink }}>
-              تحتاج المنشأة لمتابعة / زيارة لاحقة
-            </span>
-            <input
-              type="checkbox"
-              checked={followup}
-              onChange={(e) => setFollowup(e.target.checked)}
-              style={{ width: '20px', height: '20px', cursor: 'pointer' }}
-            />
-          </label>
-          {followup && (
-            <input
-              type="date"
-              placeholder="تاريخ المتابعة"
-              value={followupDate}
-              onChange={(e) => setFollowupDate(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px',
-                borderRadius: '8px',
-                border: `1px solid ${COLORS.border}`,
-                marginTop: '10px',
-              }}
-            />
-          )}
         </div>
 
         {/* GPS Location Capture */}
