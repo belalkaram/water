@@ -196,7 +196,7 @@ export default function App() {
           <Text style={styles.logout}>خروج</Text>
         </TouchableOpacity>
         <View style={{ alignItems: 'flex-end' }}>
-          <Text style={styles.brandTitle}>معاينات مياه المنوفية</Text>
+          <Text style={styles.brandTitle}>الإدارة العامة للصرف الصناعي</Text>
           <Text style={styles.brandSub}>{user.name} ({user.code})</Text>
         </View>
         <Image source={require('./assets/logo.jpg')} style={styles.topLogo} />

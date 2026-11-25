@@ -93,7 +93,7 @@ export default function LoginScreen({ onLogin }: Props) {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.card}>
         <Image source={require('../../assets/logo.jpg')} style={styles.logo} resizeMode="contain" />
-        <Text style={styles.title}>معاينات المنشآت</Text>
+        <Text style={styles.title}>الإدارة العامة للصرف الصناعي</Text>
         <Text style={styles.subtitle}>شركة مياه الشرب والصرف الصحي بالمنوفية</Text>
 
         <Text style={styles.label}>كود الدخول</Text>

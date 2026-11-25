@@ -343,12 +343,12 @@ async function recordInspection(facility, user, payload, createdAt, { viaSync = 
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html><html dir="rtl" lang="ar">
-    <head><meta charset="UTF-8"><title>Menoufia Inspections API</title>
+    <head><meta charset="UTF-8"><title>الإدارة العامة للصرف الصناعي — API</title>
     <style>body{font-family:sans-serif;max-width:600px;margin:60px auto;padding:20px;background:#f9fafb}
     h1{color:#1d4ed8}code{background:#e5e7eb;padding:2px 6px;border-radius:4px}
     .ok{color:#16a34a;font-weight:bold}ul{line-height:2}</style></head>
     <body>
-      <h1>🏭 Menoufia Inspections Backend</h1>
+      <h1>🏭 الإدارة العامة للصرف الصناعي — Backend</h1>
       <p class="ok">✅ السيرفر يعمل بنجاح — قاعدة البيانات: PostgreSQL (Neon)</p>
       <h3>Endpoints الرئيسية:</h3>
       <ul>

@@ -67,7 +67,7 @@ export const TopBar: React.FC<Props> = ({ user, onLogout, deferredPrompt, onInst
 
         <div style={{ textAlign: 'right', marginRight: '2px' }}>
           <div style={{ fontSize: '15px', fontWeight: '800', color: COLORS.ink, lineHeight: 1.2 }}>
-            معاينات مياه المنوفية
+            الإدارة العامة للصرف الصناعي
           </div>
           <div style={{ fontSize: '11px', color: COLORS.muted, marginTop: '2px', fontWeight: '500' }}>
             {user.name} <span style={{ color: COLORS.primary, fontWeight: '700' }}>({user.code})</span>

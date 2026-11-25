@@ -145,7 +145,7 @@ export const LoginScreen: React.FC<Props> = ({ onLogin }) => {
         />
 
         <h1 style={{ fontSize: '22px', fontWeight: '800', color: COLORS.ink, textAlign: 'center' }}>
-          معاينات المنشآت
+          الإدارة العامة للصرف الصناعي
         </h1>
         <p style={{ fontSize: '13px', color: COLORS.muted, textAlign: 'center', marginTop: '4px', marginBottom: '24px' }}>
           شركة مياه الشرب والصرف الصحي بالمنوفية
