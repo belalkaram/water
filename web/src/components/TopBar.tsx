@@ -26,7 +26,7 @@ export const TopBar: React.FC<Props> = ({ user, onLogout, deferredPrompt, onInst
         zIndex: 20,
       }}
     >
-      {/* Right section: Logo + Logout Icon Button + App/User Title */}
+      {/* Right section: Logo + App/User Title */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <img
           src="/logo.jpg"
@@ -41,30 +41,6 @@ export const TopBar: React.FC<Props> = ({ user, onLogout, deferredPrompt, onInst
           }}
         />
 
-        {/* Logout Button (Icon ONLY, directly next to Logo) */}
-        <button
-          type="button"
-          onClick={onLogout}
-          title="تسجيل الخروج"
-          aria-label="تسجيل الخروج"
-          style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '10px',
-            backgroundColor: '#FEF2F2',
-            border: '1px solid #FEE2E2',
-            color: COLORS.red,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            flexShrink: 0,
-            transition: 'background-color 0.15s ease',
-          }}
-        >
-          <LogOutIcon size={18} color={COLORS.red} />
-        </button>
-
         <div style={{ textAlign: 'right', marginRight: '2px' }}>
           <div style={{ fontSize: '15px', fontWeight: '800', color: COLORS.ink, lineHeight: 1.2 }}>
             الإدارة العامة للصرف الصناعي
@@ -75,8 +51,8 @@ export const TopBar: React.FC<Props> = ({ user, onLogout, deferredPrompt, onInst
         </div>
       </div>
 
-      {/* Left section: Install App button (if deferredPrompt is active) */}
-      <div>
+      {/* Left section: Install App button (only when the browser offers it) + Logout on the far left */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         {deferredPrompt && onInstall && (
           <button
             type="button"
@@ -98,6 +74,30 @@ export const TopBar: React.FC<Props> = ({ user, onLogout, deferredPrompt, onInst
             <span>تثبيت التطبيق</span>
           </button>
         )}
+
+        <button
+          type="button"
+          onClick={onLogout}
+          title="تسجيل الخروج"
+          aria-label="تسجيل الخروج"
+          style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '10px',
+            backgroundColor: '#FEF2F2',
+            border: '1px solid #FEE2E2',
+            color: COLORS.red,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            flexShrink: 0,
+            transition: 'background-color 0.15s ease',
+          }}
+        >
+          {/* Mirrored so the arrow points left (toward the screen edge) */}
+          <LogOutIcon size={18} color={COLORS.red} style={{ transform: 'scaleX(-1)' }} />
+        </button>
       </div>
     </header>
   );
