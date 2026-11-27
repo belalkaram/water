@@ -1,6 +1,10 @@
 import type { ActivityItem, ConflictItem, Facility, MonthlyPlan, NewFacilityInput, PlanReport, PlanStats, User } from './types';
 
-const DEFAULT_API_URL = (import.meta.env.VITE_API_URL as string | undefined) || (import.meta.env.PROD ? '' : 'http://localhost:4000');
+// Trailing slashes are stripped: «https://host/» + «/api/...» would give «//api», which Vercel
+// answers with a redirect — and browsers refuse redirects on CORS preflight requests.
+const DEFAULT_API_URL = (
+  (import.meta.env.VITE_API_URL as string | undefined)?.trim() || (import.meta.env.PROD ? '' : 'http://localhost:4000')
+).replace(/\/+$/, '');
 // The server address is fixed by the build (VITE_API_URL); it can no longer be changed from the app.
 try {
   localStorage.removeItem('menoufia_server_url'); // address saved by older versions

@@ -1,5 +1,5 @@
-const CACHE_NAME = 'menoufia-v5';
-const STATIC_ASSETS = ['/manifest.json', '/logo.jpg'];
+const CACHE_NAME = 'menoufia-v6';
+const STATIC_ASSETS = ['/manifest.json', '/logo.jpg', '/favicon-32.png', '/icon-192.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)));
