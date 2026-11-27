@@ -1,7 +1,8 @@
 import React from 'react';
 import { COLORS } from '../theme';
 import type { User } from '../types';
-import { LogOutIcon, SmartphoneIcon } from './Icons';
+import { LogOutIcon } from './Icons';
+import { InstallButton } from './InstallButton';
 
 interface Props {
   user: User;
@@ -27,7 +28,7 @@ export const TopBar: React.FC<Props> = ({ user, onLogout, deferredPrompt, onInst
       }}
     >
       {/* Right section: Logo + App/User Title */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
         <img
           src="/logo.jpg"
           alt="شعار الشركة"
@@ -41,7 +42,7 @@ export const TopBar: React.FC<Props> = ({ user, onLogout, deferredPrompt, onInst
           }}
         />
 
-        <div style={{ textAlign: 'right', marginRight: '2px' }}>
+        <div className="top-bar-title" style={{ textAlign: 'right', marginRight: '2px', minWidth: 0 }}>
           <div style={{ fontSize: '15px', fontWeight: '800', color: COLORS.ink, lineHeight: 1.2 }}>
             الإدارة العامة للصرف الصناعي
           </div>
@@ -51,29 +52,9 @@ export const TopBar: React.FC<Props> = ({ user, onLogout, deferredPrompt, onInst
         </div>
       </div>
 
-      {/* Left section: Install App button (only when the browser offers it) + Logout on the far left */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        {deferredPrompt && onInstall && (
-          <button
-            type="button"
-            onClick={onInstall}
-            style={{
-              color: '#FFFFFF',
-              fontSize: '12px',
-              fontWeight: '700',
-              padding: '6px 12px',
-              backgroundColor: COLORS.primary,
-              borderRadius: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              boxShadow: '0 1px 3px rgba(2, 132, 199, 0.25)',
-            }}
-          >
-            <SmartphoneIcon size={15} color="#FFFFFF" />
-            <span>تثبيت التطبيق</span>
-          </button>
-        )}
+      {/* Left section: Install App button + Logout on the far left */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginRight: '8px' }}>
+        <InstallButton deferredPrompt={deferredPrompt} onInstall={onInstall} />
 
         <button
           type="button"

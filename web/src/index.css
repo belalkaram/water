@@ -263,3 +263,44 @@ button:active {
 @media (min-width: 900px) and (max-width: 1199px) {
   .admin-screen { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ─── Install app button (top bar) ─────────────────────────────────────── */
+.install-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: #006b9f;
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(2, 132, 199, 0.25);
+}
+.install-btn-short {
+  display: none;
+}
+.top-bar-title > div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 480px) {
+  .install-btn {
+    padding: 0 10px;
+  }
+  .install-btn-label {
+    display: none;
+  }
+  .install-btn-short {
+    display: inline;
+  }
+  .top-bar-title > div:first-child {
+    font-size: 13px !important;
+  }
+}
