@@ -145,6 +145,17 @@ export const api = {
   getFacility: (code: string, facilityId: string): Promise<{ facility: Facility }> =>
     request(`/api/facilities/${facilityId}`, { method: 'GET' }, code),
 
+  /** Admin: delete a whole plan (facilities, inspections, activity) */
+  deletePlan: (planId: string): Promise<{ deleted: { plan: string; facilities: number; inspections: number } }> =>
+    request(`/api/plans/${planId}`, { method: 'DELETE' }),
+
+  /** Admin: delete one activity entry */
+  deleteFeedItem: (id: string) => request(`/api/feed/${id}`, { method: 'DELETE' }),
+
+  /** Admin: delete all activity of a plan, or of every plan with planId = 'all' */
+  clearFeed: (planId: string | 'all'): Promise<{ deleted: number }> =>
+    request(`/api/plans/${planId}/feed`, { method: 'DELETE' }),
+
   getFeed: (code: string, planId: string): Promise<{ feed: ActivityItem[] }> =>
     request(`/api/plans/${planId}/feed`, { method: 'GET' }, code),
 

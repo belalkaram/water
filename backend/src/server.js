@@ -12,6 +12,7 @@ const { normalizePayload, hydrateInspection } = require('./utils/inspectionPaylo
 const C = require('./constants');
 const {
   previewMonthlyPlan, generateMonthlyPlan, carryOverUnfinished, ensureCurrentMonth, currentYm, monthLabel, ymFromLabel,
+  runDailyPlanJob,
 } = require('./utils/monthlyPlan');
 const { buildPlanReport, buildPlanWorkbook, reportFileName } = require('./utils/planExport');
 
@@ -553,7 +554,8 @@ app.get('/api/cron/monthly-plan', async (req, res, next) => {
   try {
     const secret = process.env.CRON_SECRET;
     if (!secret || req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ error: 'unauthorized' });
-    res.json(await ensureCurrentMonth());
+    // runs daily; on the last day of the month it also prepares next month's plan
+    res.json(await runDailyPlanJob());
   } catch (err) { next(err); }
 });
 
@@ -1256,6 +1258,60 @@ app.delete('/api/facilities/:id', authMiddleware, adminOnly, async (req, res, ne
   } catch (err) {
     next(err);
   }
+});
+
+// Admin: delete one activity entry
+app.delete('/api/feed/:id', authMiddleware, adminOnly, async (req, res, next) => {
+  try {
+    await run('DELETE FROM activity_feed WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// Admin: delete all activity of one plan, or of every plan (planId = "all")
+app.delete('/api/plans/:planId/feed', authMiddleware, adminOnly, async (req, res, next) => {
+  try {
+    const all = req.params.planId === 'all';
+    const row = await queryOne(
+      `SELECT COUNT(*) AS n FROM activity_feed${all ? '' : ' WHERE plan_id = ?'}`, all ? [] : [req.params.planId]
+    );
+    await run(`DELETE FROM activity_feed${all ? '' : ' WHERE plan_id = ?'}`, all ? [] : [req.params.planId]);
+    res.json({ success: true, deleted: Number(row.n) });
+  } catch (err) { next(err); }
+});
+
+// Admin: delete a whole plan (its facilities, inspections and activity). The month is remembered so the
+// system does not re-create it automatically; the admin can still create it again by hand.
+app.delete('/api/plans/:planId', authMiddleware, adminOnly, async (req, res, next) => {
+  try {
+    const plan = await queryOne('SELECT * FROM plans WHERE id = ?', [req.params.planId]);
+    if (!plan) return res.status(404).json({ error: 'الخطة غير موجودة' });
+    const codes = (await queryAll('SELECT DISTINCT facility_code FROM facilities WHERE plan_id = ?', [plan.id])).map((r) => r.facility_code);
+    const counts = await queryOne(
+      `SELECT (SELECT COUNT(*) FROM facilities WHERE plan_id = ?) AS facilities,
+              (SELECT COUNT(*) FROM inspections WHERE plan_id = ?) AS inspections`,
+      [plan.id, plan.id]
+    );
+    await transaction(async ({ run: tRun }) => {
+      await tRun('DELETE FROM activity_feed WHERE plan_id = ?', [plan.id]);
+      await tRun('DELETE FROM inspections WHERE plan_id = ?', [plan.id]);
+      await tRun('DELETE FROM facilities WHERE plan_id = ?', [plan.id]);
+      await tRun('DELETE FROM plans WHERE id = ?', [plan.id]);
+      if (plan.plan_month) {
+        await tRun(
+          `INSERT INTO deleted_plan_months (plan_month, deleted_at, deleted_by) VALUES (?, ?, ?)
+           ON CONFLICT (plan_month) DO UPDATE SET deleted_at = EXCLUDED.deleted_at, deleted_by = EXCLUDED.deleted_by`,
+          [plan.plan_month, new Date().toISOString(), req.user.name]
+        );
+      }
+    });
+    // inspections are gone → re-derive each establishment's last visit from what is left
+    await refreshLastVisit(codes);
+    res.json({
+      success: true,
+      deleted: { plan: plan.month_label, facilities: Number(counts.facilities), inspections: Number(counts.inspections) },
+    });
+  } catch (err) { next(err); }
 });
 
 // Activity feed

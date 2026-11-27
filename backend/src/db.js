@@ -190,6 +190,14 @@ async function initDb() {
     )
   `);
   await p.query(`CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at)`);
+  // شهور مسح الأدمن خطتها — النظام ما يعيدش إنشاءها تلقائياً (إلا لو الأدمن أنشأها يدوياً)
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS deleted_plan_months (
+      plan_month TEXT PRIMARY KEY,
+      deleted_at TEXT NOT NULL,
+      deleted_by TEXT NOT NULL DEFAULT ''
+    )
+  `);
   await p.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS plan_month TEXT`);
   await p.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS generated_by TEXT DEFAULT 'manual'`);
   await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_centers TEXT NOT NULL DEFAULT '[]'`);

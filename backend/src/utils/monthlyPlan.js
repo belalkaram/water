@@ -1,5 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
-const { queryAll, queryOne, transaction } = require('../db');
+const { queryAll, queryOne, run, transaction } = require('../db');
 const C = require('../constants');
 
 const MONTHS_AR = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
@@ -145,15 +145,28 @@ async function carryOverUnfinished(ym, { userName = 'النظام', userId = 'sy
   return { carried: todo.length, from: prev.plan_month };
 }
 
+// Months whose plan an admin deleted are never re-created automatically.
+async function isDeletedMonth(ym) {
+  return Boolean(await queryOne('SELECT 1 FROM deleted_plan_months WHERE plan_month = ?', [ym]));
+}
+
 // Idempotent: returns { created:false } if the month already has a plan.
-async function generateMonthlyPlan(ym, { generatedBy = 'auto', userName = 'النظام' } = {}) {
+// carryOver=false is used when the plan is generated *before* its month starts (last day of the previous
+// month): the previous month is still running, so its leftovers move over on the 1st instead.
+async function generateMonthlyPlan(ym, { generatedBy = 'auto', userName = 'النظام', carryOver = true } = {}) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) throw new Error('صيغة الشهر غير صحيحة');
   const label = monthLabel(ym);
   const existing = await queryOne('SELECT * FROM plans WHERE plan_month = ? OR month_label = ?', [ym, label]);
   if (existing) return { created: false, plan: existing };
+  if (generatedBy === 'manual') {
+    // an admin creating the month by hand lifts an earlier deletion
+    await run('DELETE FROM deleted_plan_months WHERE plan_month = ?', [ym]);
+  } else if (await isDeletedMonth(ym)) {
+    return { created: false, plan: null, deleted: true };
+  }
 
   const rows = await dueEstablishments(ym);
-  const { prev, rows: leftovers } = await unfinishedFromPrevious(ym);
+  const { prev, rows: leftovers } = carryOver ? await unfinishedFromPrevious(ym) : { prev: null, rows: [] };
   if (rows.length === 0 && leftovers.length === 0) return { created: false, plan: null, empty: true };
   const leftoverCodes = new Set(leftovers.map((r) => r.facility_code));
   const carriedNote = prev ? `مرحّلة من ${prev.month_label}` : '';
@@ -198,7 +211,7 @@ async function generateMonthlyPlan(ym, { generatedBy = 'auto', userName = 'ال�
     throw err;
   }
   // Leftovers that are not in the registry's due list (e.g. rows that came from an uploaded plan)
-  const extra = await carryOverUnfinished(ym, { userName });
+  const extra = carryOver ? await carryOverUnfinished(ym, { userName }) : { carried: 0 };
   return {
     created: true,
     plan: await queryOne('SELECT * FROM plans WHERE id = ?', [planId]),
@@ -212,11 +225,31 @@ async function ensureCurrentMonth() {
   const ym = currentYm();
   const gen = await generateMonthlyPlan(ym, { generatedBy: 'auto' });
   if (gen.created) return { month: ym, created: true, carried: gen.carried || 0 };
+  if (gen.deleted) return { month: ym, created: false, deleted: true, carried: 0 };
   const carry = await carryOverUnfinished(ym);
   return { month: ym, created: false, carried: carry.carried };
+}
+
+// Is `d` the last calendar day of its month in Egypt time (UTC+2)?
+function isLastDayOfMonth(d = new Date()) {
+  return currentYm(d) !== currentYm(new Date(d.getTime() + 24 * 3600 * 1000));
+}
+
+// Daily job: keeps the current month in place, and on the last day of the month
+// also prepares next month's plan so it is ready when the month starts.
+async function runDailyPlanJob(now = new Date()) {
+  const current = await ensureCurrentMonth();
+  let next = null;
+  if (isLastDayOfMonth(now)) {
+    const ym = addMonths(currentYm(now), 1);
+    const gen = await generateMonthlyPlan(ym, { generatedBy: 'auto', carryOver: false });
+    next = { month: ym, created: gen.created, total: gen.total || 0, deleted: !!gen.deleted, empty: !!gen.empty };
+  }
+  return { current, next };
 }
 
 module.exports = {
   MONTHS_AR, monthLabel, currentYm, addMonths, ymFromLabel, dueCutoff,
   previewMonthlyPlan, generateMonthlyPlan, carryOverUnfinished, ensureCurrentMonth,
+  isLastDayOfMonth, runDailyPlanJob,
 };

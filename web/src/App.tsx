@@ -117,9 +117,19 @@ export default function App() {
         const loadedPlans = (await api.getPlans(currentUser.code)).plans || [];
         setPlans(loadedPlans);
         const ym = new Date().toISOString().slice(0, 7);
-        const targetPlanId = planIdOverride || selectedPlanId || loadedPlans.find((p) => p.plan_month === ym)?.id || loadedPlans[0]?.id || '';
+        // keep the chosen plan only if it still exists (an admin may have deleted it)
+        const exists = (id?: string) => !!id && loadedPlans.some((p) => p.id === id);
+        const targetPlanId =
+          [planIdOverride, selectedPlanId].find(exists) ||
+          loadedPlans.find((p) => p.plan_month === ym)?.id ||
+          loadedPlans[0]?.id ||
+          '';
         setSelectedPlanId(targetPlanId);
 
+        if (!targetPlanId) {
+          setFacilities([]);
+          setFeed([]);
+        }
         if (targetPlanId) {
           const [facRes, feedRes] = await Promise.all([
             api.getFacilities(currentUser.code, targetPlanId),
@@ -273,6 +283,7 @@ export default function App() {
           loading={!loadedOnce || (refreshing && feed.length === 0)}
           onSelectFacilityId={handleOpenFacilityById}
           userId={user.id}
+          isAdmin={user.role === 'admin'}
           plans={plans}
           selectedPlanId={selectedPlanId}
           onSelectPlan={selectPlan}

@@ -64,7 +64,8 @@ export const MonthlyPlanPanel: React.FC<Props> = ({ adminCode, onCreated }) => {
     >
       <h3 style={{ fontSize: '15px', fontWeight: 800, color: COLORS.ink, margin: 0 }}>الخطة الشهرية التلقائية</h3>
       <p style={{ fontSize: '12px', color: COLORS.muted, margin: 0, lineHeight: 1.6 }}>
-        تُنشأ تلقائياً أول كل شهر: كل منشأة مفتوحة مرّ على آخر معاينة لها 6 شهور أو لم تُعاين من قبل.
+        تُجهَّز خطة الشهر الجديد تلقائياً في آخر يوم من كل شهر: كل منشأة مفتوحة مرّ على آخر معاينة لها 6 شهور أو لم تُعاين من قبل،
+        وأول الشهر تُرحَّل إليها المنشآت التي لم تتم في الشهر السابق.
         هنا يمكنك معاينة أو إنشاء خطة شهر بشكل يدوي.
       </p>
       <div style={{ display: 'flex', gap: '8px' }}>

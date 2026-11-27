@@ -6,6 +6,7 @@ import { LEVEL_COLORS, LEVEL_LABELS, type ViolationLevel } from '../constants';
 import { api } from '../api';
 import { WorkersPanel } from '../components/WorkersPanel';
 import { MonthlyPlanPanel } from '../components/MonthlyPlanPanel';
+import { DataManagementPanel } from '../components/DataManagementPanel';
 import { ExportButtons } from '../components/ExportButtons';
 import {
   AlertTriangleIcon,
@@ -893,6 +894,8 @@ export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefre
       </div>
 
       <MonthlyPlanPanel adminCode={user.code} onCreated={onRefresh} />
+
+      <DataManagementPanel plans={plans} planId={planId} onChanged={onRefresh} />
 
       <WorkersPanel adminCode={user.code} />
 

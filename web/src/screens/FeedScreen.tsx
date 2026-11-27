@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { FeedItemSkeleton, SkeletonList } from '../components/Skeleton';
 import { COLORS } from '../theme';
 import type { ActivityItem, MonthlyPlan } from '../types';
+import { api } from '../api';
 import { FilterBar } from '../components/FilterBar';
 import { usePersistedState } from '../utils/usePersistedState';
 import {
@@ -14,6 +15,7 @@ import {
   RefreshCwIcon,
   RotateCcwIcon,
   SearchIcon,
+  Trash2Icon,
   UnlockIcon,
   XIcon,
 } from '../components/Icons';
@@ -25,6 +27,7 @@ interface Props {
   loading?: boolean;
   onSelectFacilityId?: (facilityId: string) => void;
   userId: string;
+  isAdmin?: boolean;
   plans: MonthlyPlan[];
   selectedPlanId: string;
   onSelectPlan: (id: string) => void;
@@ -149,8 +152,38 @@ function renderActionBadge(action: string) {
 }
 
 export const FeedScreen: React.FC<Props> = ({
-  feed, onRefresh, refreshing, loading = false, onSelectFacilityId, userId, plans, selectedPlanId, onSelectPlan,
+  feed, onRefresh, refreshing, loading = false, onSelectFacilityId, userId, isAdmin = false, plans, selectedPlanId, onSelectPlan,
 }) => {
+  const [busy, setBusy] = useState(false);
+  const planLabel = plans.find((p) => p.id === selectedPlanId)?.month_label || 'هذه الخطة';
+
+  // Admin: delete one entry / all entries of the selected plan (removed for every employee)
+  const deleteItem = async (item: ActivityItem) => {
+    if (!window.confirm(`حذف هذا النشاط نهائياً؟
+
+«${item.summary}»`)) return;
+    try {
+      await api.deleteFeedItem(item.id);
+      onRefresh();
+    } catch (err: any) {
+      alert('تعذر الحذف: ' + err.message);
+    }
+  };
+  const clearPlanFeed = async () => {
+    if (!selectedPlanId || feed.length === 0) return;
+    if (!window.confirm(`حذف كل نشاط ${planLabel} (${feed.length} نشاط) نهائياً؟
+سيختفي من عند كل الموظفين ولا يمكن استرجاعه.`)) return;
+    setBusy(true);
+    try {
+      const res = await api.clearFeed(selectedPlanId);
+      onRefresh();
+      alert(`تم حذف ${res.deleted} نشاط`);
+    } catch (err: any) {
+      alert('تعذر الحذف: ' + err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [actionFilter, setActionFilter] = usePersistedState<ActionFilterType>(
     `filters_feed_action_${userId}`,
@@ -239,6 +272,30 @@ export const FeedScreen: React.FC<Props> = ({
           </span>
         </div>
 
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {isAdmin && feed.length > 0 && (
+          <button
+            type="button"
+            onClick={clearPlanFeed}
+            disabled={busy}
+            style={{
+              color: COLORS.red,
+              backgroundColor: COLORS.redSoft,
+              fontWeight: '800',
+              fontSize: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '5px 10px',
+              cursor: busy ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <Trash2Icon size={13} color={COLORS.red} />
+            <span>{busy ? 'جارٍ الحذف...' : 'مسح النشاط'}</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={onRefresh}
@@ -259,6 +316,7 @@ export const FeedScreen: React.FC<Props> = ({
           </span>
           <span>{refreshing ? 'جارٍ التحديث...' : 'تحديث'}</span>
         </button>
+        </div>
       </div>
 
       {/* Unified filters */}
@@ -426,6 +484,31 @@ export const FeedScreen: React.FC<Props> = ({
                     {item.worker_name}
                   </span>
                   {renderActionBadge(item.action)}
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      title="حذف هذا النشاط"
+                      aria-label="حذف هذا النشاط"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteItem(item);
+                      }}
+                      style={{
+                        width: '26px',
+                        height: '26px',
+                        borderRadius: '7px',
+                        border: 'none',
+                        backgroundColor: COLORS.redSoft,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        padding: 0,
+                      }}
+                    >
+                      <Trash2Icon size={13} color={COLORS.red} />
+                    </button>
+                  )}
                 </div>
               </div>
 
