@@ -1,18 +1,15 @@
-import type { ActivityItem, ConflictItem, Facility, MonthlyPlan, PlanReport, PlanStats, User } from './types';
+import type { ActivityItem, ConflictItem, Facility, MonthlyPlan, NewFacilityInput, PlanReport, PlanStats, User } from './types';
 
 const DEFAULT_API_URL = (import.meta.env.VITE_API_URL as string | undefined) || (import.meta.env.PROD ? '' : 'http://localhost:4000');
-const SERVER_URL_KEY = 'menoufia_server_url';
-
-export function getServerUrl(): string {
-  const saved = localStorage.getItem(SERVER_URL_KEY);
-  if (saved !== null && saved !== undefined && saved.trim() !== '') {
-    return saved;
-  }
-  return DEFAULT_API_URL;
+// The server address is fixed by the build (VITE_API_URL); it can no longer be changed from the app.
+try {
+  localStorage.removeItem('menoufia_server_url'); // address saved by older versions
+} catch {
+  // ignore
 }
 
-export function setServerUrl(url: string): void {
-  localStorage.setItem(SERVER_URL_KEY, url.replace(/\/+$/, ''));
+export function getServerUrl(): string {
+  return DEFAULT_API_URL;
 }
 
 export class ApiError extends Error {
@@ -23,26 +20,62 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path: string, options: RequestInit = {}, userCode?: string) {
+// ─── Session (token issued by the server at login; its lifetime is decided by the server) ───
+const SESSION_KEY = 'menoufia_session';
+let sessionToken: string | null = (() => {
+  try {
+    return localStorage.getItem(SESSION_KEY);
+  } catch {
+    return null;
+  }
+})();
+let onSessionEnded: (() => void) | null = null;
+
+export function setSessionToken(token: string | null): void {
+  sessionToken = token;
+  try {
+    if (token) localStorage.setItem(SESSION_KEY, token);
+    else localStorage.removeItem(SESSION_KEY);
+  } catch {
+    // ignore storage errors
+  }
+}
+export const hasSession = () => !!sessionToken;
+/** App registers this to go back to the login screen when the server rejects the session */
+export function onSessionExpired(handler: (() => void) | null): void {
+  onSessionEnded = handler;
+}
+function sessionRejected(status: number) {
+  if (status === 401 && sessionToken) {
+    setSessionToken(null);
+    onSessionEnded?.();
+  }
+}
+
+// The second-to-last `_userCode` argument is kept for call-site compatibility; auth uses the session token.
+async function request(path: string, options: RequestInit = {}, _userCode?: string) {
   const baseUrl = getServerUrl();
   const url = baseUrl ? `${baseUrl}${path}` : path;
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
-  if (userCode) headers['x-user-code'] = userCode;
+  if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
   if (!(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
   const res = await fetch(url, { ...options, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    sessionRejected(res.status);
     throw new ApiError(data.error || `HTTP ${res.status}`, res.status);
   }
   return data;
 }
 
 export const api = {
-  login: (code: string): Promise<{ user: User }> =>
+  logout: () => request('/api/auth/logout', { method: 'POST' }).catch(() => undefined),
+
+  login: (code: string): Promise<{ user: User; token: string }> =>
     request('/api/auth/login', { method: 'POST', body: JSON.stringify({ code }) }),
 
   getPlans: (code: string): Promise<{ plans: MonthlyPlan[] }> =>
@@ -59,7 +92,7 @@ export const api = {
       const baseUrl = getServerUrl();
       const uploadUrl = baseUrl ? `${baseUrl}/api/plans/upload` : '/api/plans/upload';
       xhr.open('POST', uploadUrl);
-      xhr.setRequestHeader('x-user-code', code);
+      if (sessionToken) xhr.setRequestHeader('Authorization', `Bearer ${sessionToken}`);
 
       if (xhr.upload && onUploadProgress) {
         xhr.upload.onprogress = (e) => {
@@ -77,6 +110,7 @@ export const api = {
         } catch {
           data = { error: xhr.statusText || 'حدث خطأ في الخادم' };
         }
+        sessionRejected(xhr.status);
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve(data);
         } else {
@@ -131,7 +165,7 @@ export const api = {
   /** Styled Excel of the plan (admin: all cities, worker: own cities only) */
   exportUrl: (code: string, planId: string, center?: string) => {
     const base = getServerUrl();
-    const path = `/api/plans/${planId}/export.xlsx?code=${encodeURIComponent(code)}${center ? `&center=${encodeURIComponent(center)}` : ''}`;
+    const path = `/api/plans/${planId}/export.xlsx?token=${encodeURIComponent(sessionToken || '')}${center ? `&center=${encodeURIComponent(center)}` : ''}`;
     return base ? `${base}${path}` : path;
   },
 
@@ -159,7 +193,10 @@ export const api = {
   ) =>
     request(`/api/plans/${planId}/bulk-reset`, { method: 'POST', body: JSON.stringify({ target, mode }) }, code),
 
-  createFacility: (code: string, planId: string, data: Partial<Facility>) =>
+  nextSerial: (code: string, planId: string): Promise<{ next_serial: number }> =>
+    request(`/api/plans/${planId}/next-serial`, { method: 'GET' }, code),
+
+  createFacility: (code: string, planId: string, data: NewFacilityInput): Promise<{ facility: Facility }> =>
     request(`/api/plans/${planId}/facilities`, { method: 'POST', body: JSON.stringify(data) }, code),
 
   updateFacility: (code: string, facilityId: string, data: Partial<Facility>) =>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ActivityItem, Facility, MonthlyPlan, User } from './types';
-import { api } from './api';
+import { api, hasSession, onSessionExpired, setSessionToken } from './api';
 import { TopBar } from './components/TopBar';
 import { BottomNav, type TabType } from './components/BottomNav';
 import { BottomSheet } from './components/BottomSheet';
@@ -10,7 +10,7 @@ import { LoginScreen } from './screens/LoginScreen';
 import { PlanScreen } from './screens/PlanScreen';
 import { FeedScreen } from './screens/FeedScreen';
 import { AdminScreen } from './screens/AdminScreen';
-import { clearAllCookies, getCookie, removeCookie, setCookie } from './utils/cookies';
+import { removeCookie } from './utils/cookies';
 
 const USER_COOKIE_KEY = 'menoufia_user';
 const USER_STORAGE_KEY = 'menoufia_user';
@@ -18,24 +18,17 @@ const USER_STORAGE_KEY = 'menoufia_user';
 export default function App() {
   const [user, setUser] = useState<User | null>(() => {
     try {
-      // 1. Check Cookie first (Primary session bearer for mobile and browser)
-      const cookieUser = getCookie(USER_COOKIE_KEY);
-      if (cookieUser) {
-        return JSON.parse(cookieUser);
-      }
-
-      // If cookie was cleared from mobile settings, clear localStorage to remain synced
+      // The user stays signed in only while the server-issued session is valid
+      removeCookie(USER_COOKIE_KEY); // legacy long-lived cookie from older versions
       const saved = localStorage.getItem(USER_STORAGE_KEY);
-      if (saved && !document.cookie.includes(USER_COOKIE_KEY)) {
-        // If there were any cookies previously or it's a first load
-        localStorage.removeItem(USER_STORAGE_KEY);
-        return null;
-      }
+      if (saved && hasSession()) return JSON.parse(saved);
+      localStorage.removeItem(USER_STORAGE_KEY);
       return null;
     } catch {
       return null;
     }
   });
+  const [sessionNotice, setSessionNotice] = useState('');
 
   const [tab, setTab] = useState<TabType>('plan');
   const [plans, setPlans] = useState<MonthlyPlan[]>([]);
@@ -80,10 +73,22 @@ export default function App() {
     };
   }, []);
 
-  const handleLogin = (u: User) => {
+  const clearSignedInState = () => {
+    setUser(null);
+    setActiveFacility(null);
+    setInspectingFacility(null);
+    try {
+      localStorage.removeItem(USER_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleLogin = (u: User, token: string) => {
+    setSessionToken(token);
+    setSessionNotice('');
     setUser(u);
     try {
-      setCookie(USER_COOKIE_KEY, JSON.stringify(u), 30);
       localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(u));
     } catch {
       // ignore
@@ -91,14 +96,19 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    setUser(null);
-    try {
-      removeCookie(USER_COOKIE_KEY);
-      localStorage.removeItem(USER_STORAGE_KEY);
-    } catch {
-      // ignore
-    }
+    api.logout();
+    setSessionToken(null);
+    clearSignedInState();
   };
+
+  // Server ended the session → back to login (inspection drafts stay saved on the device)
+  useEffect(() => {
+    onSessionExpired(() => {
+      clearSignedInState();
+      setSessionNotice('انتهت الجلسة، يرجى تسجيل الدخول مرة أخرى');
+    });
+    return () => onSessionExpired(null);
+  }, []);
 
   const refreshAll = useCallback(
     async (currentUser: User, planIdOverride?: string) => {
@@ -127,6 +137,14 @@ export default function App() {
     },
     [selectedPlanId]
   );
+
+  const selectPlan = (id: string) => {
+    if (!user) return;
+    setSelectedPlanId(id);
+    setFacilities([]);
+    setFeed([]);
+    refreshAll(user, id);
+  };
 
   useEffect(() => {
     if (user) {
@@ -191,7 +209,7 @@ export default function App() {
   };
 
   if (!user) {
-    return <LoginScreen onLogin={handleLogin} />;
+    return <LoginScreen onLogin={handleLogin} notice={sessionNotice} />;
   }
 
   return (
@@ -238,12 +256,7 @@ export default function App() {
           user={user}
           plans={plans}
           selectedPlanId={selectedPlanId}
-          onSelectPlan={(id) => {
-            setSelectedPlanId(id);
-            setFacilities([]);
-            setFeed([]);
-            refreshAll(user, id);
-          }}
+          onSelectPlan={selectPlan}
           facilities={facilities}
           onSelectFacility={(f) => setActiveFacility(f)}
           onRefresh={() => refreshAll(user, selectedPlanId)}
@@ -259,6 +272,10 @@ export default function App() {
           refreshing={refreshing}
           loading={!loadedOnce || (refreshing && feed.length === 0)}
           onSelectFacilityId={handleOpenFacilityById}
+          userId={user.id}
+          plans={plans}
+          selectedPlanId={selectedPlanId}
+          onSelectPlan={selectPlan}
         />
       )}
 
@@ -268,6 +285,8 @@ export default function App() {
           facilities={facilities}
           planId={selectedPlanId}
           onRefresh={() => refreshAll(user, selectedPlanId)}
+          plans={plans}
+          onSelectPlan={selectPlan}
         />
       )}
 

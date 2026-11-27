@@ -3,8 +3,9 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 const { initDb, queryAll, queryOne, run, transaction } = require('./db');
-const { parseExcelRows } = require('./utils/centerParser');
+const { parseExcelRows, ACTIVITY_TYPES } = require('./utils/centerParser');
 const { parsePdfBuffer } = require('./utils/pdfParser');
 const { parsePlanFile } = require('./utils/universalParser');
 const { normalizePayload, hydrateInspection } = require('./utils/inspectionPayload');
@@ -21,7 +22,7 @@ const PORT = process.env.PORT || 4000;
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user-code');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-session-token');
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -31,7 +32,7 @@ app.use((req, res, next) => {
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'x-user-code'],
+  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'x-session-token'],
 }));
 
 app.use(express.json({ limit: '15mb' }));
@@ -79,12 +80,26 @@ const upload = multer({
 
 // ─── Auth Middleware ──────────────────────────────────────────────────────────
 
+// Session lifetime is a server-side policy only (never sent to or shown in the client).
+const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MINUTES || 60) * 60 * 1000;
+const SESSION_ENDED = { error: 'انتهت الجلسة، يرجى تسجيل الدخول مرة أخرى', code: 'SESSION_EXPIRED' };
+
+function readToken(req) {
+  const h = String(req.headers.authorization || '');
+  if (h.startsWith('Bearer ')) return h.slice(7).trim();
+  return String(req.headers['x-session-token'] || '').trim();
+}
+
 async function authMiddleware(req, res, next) {
-  const code = (req.headers['x-user-code'] || '').toString().trim().toUpperCase();
-  if (!code) return res.status(401).json({ error: 'يرجى تسجيل الدخول بالكود أولاً' });
+  const token = readToken(req);
+  if (!token) return res.status(401).json(SESSION_ENDED);
   try {
-    const user = await queryOne('SELECT * FROM users WHERE UPPER(code) = ? AND active = 1', [code]);
-    if (!user) return res.status(401).json({ error: 'كود المستخدم غير صحيح أو غير مفعل' });
+    const user = await queryOne(
+      `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.token = ? AND s.expires_at > ? AND u.active = 1`,
+      [token, new Date().toISOString()]
+    );
+    if (!user) return res.status(401).json(SESSION_ENDED);
     req.user = user;
     next();
   } catch (err) {
@@ -374,7 +389,21 @@ app.post('/api/auth/login', async (req, res, next) => {
     if (!code) return res.status(400).json({ error: 'أدخل كود الدخول' });
     const user = await queryOne('SELECT * FROM users WHERE UPPER(code) = ? AND active = 1', [code]);
     if (!user) return res.status(401).json({ error: 'الكود غير مسجل. تواصل مع الأدمن للحصول على كودك.' });
-    res.json({ user: publicUser(user) });
+    const now = new Date();
+    const token = crypto.randomBytes(32).toString('hex');
+    await run('DELETE FROM sessions WHERE expires_at < ?', [now.toISOString()]);
+    await run('INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)', [
+      token, user.id, now.toISOString(), new Date(now.getTime() + SESSION_TTL_MS).toISOString(),
+    ]);
+    res.json({ user: publicUser(user), token });
+  } catch (err) { next(err); }
+});
+
+app.post('/api/auth/logout', async (req, res, next) => {
+  try {
+    const token = readToken(req);
+    if (token) await run('DELETE FROM sessions WHERE token = ?', [token]);
+    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
@@ -740,6 +769,9 @@ app.get('/api/facilities/:id', authMiddleware, async (req, res, next) => {
     res.json({
       facility: {
         ...(await attachLastVisit([facility]))[0],
+        registry: await queryOne(
+          'SELECT owner, phone, water_qty, treatment_unit, status_raw FROM establishments WHERE facility_code = ?', [facility.facility_code]
+        ),
         inspection: insp ? hydrateInspection(insp) : null,
         history,
       },
@@ -855,8 +887,9 @@ app.post('/api/facilities/:id/reject', authMiddleware, adminOnly, async (req, re
 });
 
 // Excel / PDF downloads authenticate via ?code= because they are opened as plain links
+// File downloads open in a new tab, so the session token comes in the query string
 function authFromQuery(req, res, next) {
-  if (!req.headers['x-user-code'] && req.query.code) req.headers['x-user-code'] = String(req.query.code);
+  if (!readToken(req) && req.query.token) req.headers['x-session-token'] = String(req.query.token);
   next();
 }
 
@@ -1034,70 +1067,101 @@ app.post('/api/plans/:planId/bulk-reset', authMiddleware, adminOnly, async (req,
   }
 });
 
-// Admin: Create a new facility manually (CRUD)
-app.post('/api/plans/:planId/facilities', authMiddleware, adminOnly, async (req, res, next) => {
+// Any employee: register a new establishment (same fields as the Excel sheets) and add it to the plan.
+// Workers can only add to their assigned centers. The establishment is also saved to the permanent registry.
+// Suggested serial = after the highest serial used anywhere (all plans + registry). The user can change it.
+app.get('/api/plans/:planId/next-serial', authMiddleware, async (req, res, next) => {
+  try {
+    const row = await queryOne(
+      `SELECT GREATEST(COALESCE((SELECT MAX(serial_no) FROM facilities), 0), COALESCE((SELECT MAX(serial_no) FROM establishments), 0)) AS m`
+    );
+    res.json({ next_serial: Number(row.m) + 1 });
+  } catch (err) { next(err); }
+});
+
+app.get('/api/activity-types', authMiddleware, (req, res) => {
+  res.json({ activity_types: ACTIVITY_TYPES });
+});
+
+app.post('/api/plans/:planId/facilities', authMiddleware, async (req, res, next) => {
   try {
     const { planId } = req.params;
-    const {
-      name,
-      address = '',
-      center = '',
-      facility_code = '',
-      target_date = '',
-      activity_type = 'أخرى',
-      plan_notes = '',
-    } = req.body;
+    const txt = (v, max = 300) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+    const name = txt(req.body.name, 200);
+    const address = txt(req.body.address);
+    const center = txt(req.body.center, 60);
+    const code = txt(req.body.facility_code, 40).toUpperCase();
+    const target_date = txt(req.body.target_date, 10);
+    const activity_type = txt(req.body.activity_type, 60) || 'أخرى';
+    const serial = Number(req.body.serial_no);
+    const plan_notes = txt(req.body.plan_notes);
+    const owner = txt(req.body.owner, 150);
+    const phone = txt(req.body.phone, 60);
+    const water_qty = txt(req.body.water_qty, 60);
+    const treatment_unit = txt(req.body.treatment_unit, 150);
+    const last_visit_date = txt(req.body.last_visit_date, 10);
 
-    if (!name || !name.trim()) {
-      return res.status(400).json({ error: 'اسم المنشأة مطلوب' });
+    if (!name) return res.status(400).json({ error: 'اسم المنشأة مطلوب' });
+    if (!code) return res.status(400).json({ error: 'كود المنشأة مطلوب' });
+    if (!Number.isInteger(serial) || serial < 1 || serial > 1000000) {
+      return res.status(400).json({ error: 'رقم التسلسل مطلوب (رقم صحيح أكبر من صفر)' });
+    }
+    if (!ACTIVITY_TYPES.includes(activity_type)) return res.status(400).json({ error: 'اختر نوع النشاط من القائمة' });
+    if (!C.OFFICIAL_CENTERS.includes(center)) return res.status(400).json({ error: 'اختر المدينة من القائمة' });
+    if (!canAccessCenter(req.user, center)) return res.status(403).json({ error: 'لا يمكنك إضافة منشأة في مدينة غير مخصصة لك' });
+    if (last_visit_date && (!/^\d{4}-\d{2}-\d{2}$/.test(last_visit_date) || last_visit_date > new Date().toISOString().slice(0, 10))) {
+      return res.status(400).json({ error: 'تاريخ آخر مرور غير صحيح' });
     }
 
     const plan = await queryOne('SELECT * FROM plans WHERE id = ?', [planId]);
     if (!plan) return res.status(404).json({ error: 'الخطة غير موجودة' });
 
-    // Calculate next serial number in this plan
-    const maxSerialRow = await queryOne('SELECT MAX(serial_no) as max_s FROM facilities WHERE plan_id = ?', [planId]);
-    const nextSerial = (maxSerialRow?.max_s || 0) + 1;
-
-    const { detectCenter } = require('./utils/centerParser');
-    const computedCenter = center && center.trim() ? center.trim() : detectCenter(facility_code, address, '');
-    const code = facility_code && facility_code.trim() ? facility_code.trim().toUpperCase() : `F-${nextSerial}`;
+    const existing = await queryOne('SELECT name, center FROM establishments WHERE facility_code = ?', [code]);
+    if (existing) return res.status(409).json({ error: `الكود ${code} مسجل بالفعل لمنشأة "${existing.name}" (${existing.center})` });
+    const inPlan = await queryOne('SELECT name FROM facilities WHERE plan_id = ? AND facility_code = ?', [planId, code]);
+    if (inPlan) return res.status(409).json({ error: `الكود ${code} موجود بالفعل في الخطة (${inPlan.name})` });
 
     const facilityId = uuidv4();
     const now = new Date().toISOString();
+    const SERIAL_TAKEN = 'تعذر حفظ المنشأة بسبب وجود رقم تسلسل بنفس الرقم الموجود حالياً';
 
-    await transaction(async ({ run: tRun }) => {
+    // رقم التسلسل لازم يكون فريد في كل الخطط (الشيتات) وفي السجل الدائم
+    const serialTaken = async (one) =>
+      (await one('SELECT 1 FROM facilities WHERE serial_no = ? LIMIT 1', [serial])) ||
+      (await one('SELECT 1 FROM establishments WHERE serial_no = ? LIMIT 1', [serial]));
+    if (await serialTaken(queryOne)) return res.status(409).json({ error: SERIAL_TAKEN });
+
+    const saved = await transaction(async ({ run: tRun, queryOne: tOne }) => {
+      // lock so two employees saving the same serial at the same moment can't both succeed
+      await tOne('SELECT pg_advisory_xact_lock(7340021)');
+      if (await serialTaken(tOne)) return false;
+      await tRun(
+        `INSERT INTO establishments (id, facility_code, serial_no, name, address, center, activity_type, owner, phone, water_qty, treatment_unit,
+                                     status_raw, is_active, last_visit_date, baseline_visit_date, source_file, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Open', 1, ?, ?, ?, ?, ?)`,
+        [uuidv4(), code, serial, name, address, center, activity_type, owner, phone, water_qty, treatment_unit,
+          last_visit_date, last_visit_date, `أضافها ${req.user.name}`, now, now]
+      );
       await tRun(
         `INSERT INTO facilities
          (id, plan_id, serial_no, name, address, center, facility_code, target_date, plan_notes, activity_type, status, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?)`,
-        [
-          facilityId,
-          planId,
-          nextSerial,
-          name.trim(),
-          address.trim() || 'المنوفية',
-          computedCenter,
-          code,
-          target_date.trim(),
-          plan_notes.trim(),
-          activity_type.trim() || 'أخرى',
-          now,
-        ]
+        [facilityId, planId, serial, name, address || center, center, code, target_date, plan_notes, activity_type, now]
       );
-
       await tRun('UPDATE plans SET total_facilities = total_facilities + 1 WHERE id = ?', [planId]);
+      return true;
     });
+    if (!saved) return res.status(409).json({ error: SERIAL_TAKEN });
 
     await logActivity({
       plan_id: planId,
       facility_id: facilityId,
-      facility_name: name.trim(),
-      center: computedCenter,
+      facility_name: name,
+      center,
       worker_id: req.user.id,
       worker_name: req.user.name,
       action: 'facility_created',
-      summary: `أضاف الأدمن منشأة جديدة: ${name.trim()} (${code})`,
+      summary: `أضاف ${req.user.name} منشأة جديدة: ${name} (${code}) — تسلسل ${serial}`,
     });
 
     res.status(201).json({
@@ -1105,6 +1169,7 @@ app.post('/api/plans/:planId/facilities', authMiddleware, adminOnly, async (req,
       facility: await queryOne('SELECT * FROM facilities WHERE id = ?', [facilityId]),
     });
   } catch (err) {
+    if (err && err.code === '23505') return res.status(409).json({ error: 'كود المنشأة مسجل بالفعل' });
     next(err);
   }
 });

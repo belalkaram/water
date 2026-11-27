@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { COLORS } from '../theme';
 import { api } from '../api';
+import { MonthPicker } from './pickers/MonthPicker';
 
 interface Props {
   adminCode: string;
@@ -67,11 +68,9 @@ export const MonthlyPlanPanel: React.FC<Props> = ({ adminCode, onCreated }) => {
         هنا يمكنك معاينة أو إنشاء خطة شهر بشكل يدوي.
       </p>
       <div style={{ display: 'flex', gap: '8px' }}>
-        <input
-          type="month" value={month}
-          onChange={(e) => { setMonth(e.target.value); setPreview(null); }}
-          style={{ flex: 1, padding: '10px 12px', borderRadius: '10px', border: `1px solid ${COLORS.border}`, backgroundColor: COLORS.bg }}
-        />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <MonthPicker value={month} onChange={(v) => { setMonth(v); setPreview(null); }} />
+        </div>
         <button
           type="button" onClick={doPreview} disabled={busy || !month}
           style={{ padding: '10px 14px', borderRadius: '10px', backgroundColor: COLORS.primary, color: '#FFFFFF', fontSize: '13px', fontWeight: 800 }}

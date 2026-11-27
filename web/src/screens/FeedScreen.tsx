@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { FeedItemSkeleton, SkeletonList } from '../components/Skeleton';
 import { COLORS } from '../theme';
-import type { ActivityItem } from '../types';
+import type { ActivityItem, MonthlyPlan } from '../types';
+import { FilterBar } from '../components/FilterBar';
+import { usePersistedState } from '../utils/usePersistedState';
 import {
   CarIcon,
   CheckCircleIcon,
@@ -22,16 +24,20 @@ interface Props {
   refreshing: boolean;
   loading?: boolean;
   onSelectFacilityId?: (facilityId: string) => void;
+  userId: string;
+  plans: MonthlyPlan[];
+  selectedPlanId: string;
+  onSelectPlan: (id: string) => void;
 }
 
 type ActionFilterType = 'all' | 'completed' | 'reserved' | 'released' | 'expired' | 'unlocked';
 
 const ACTION_FILTERS: { key: ActionFilterType; label: string }[] = [
   { key: 'all', label: 'الكل' },
-  { key: 'completed', label: 'معاينات منجزة' },
+  { key: 'completed', label: 'منجزة' },
   { key: 'reserved', label: 'في الطريق' },
   { key: 'released', label: 'إلغاء حجز' },
-  { key: 'unlocked', label: 'فتح للمعاينة' },
+  { key: 'unlocked', label: 'إعادة فتح' },
 ];
 
 function renderActionBadge(action: string) {
@@ -142,10 +148,16 @@ function renderActionBadge(action: string) {
   }
 }
 
-export const FeedScreen: React.FC<Props> = ({ feed, onRefresh, refreshing, loading = false, onSelectFacilityId }) => {
+export const FeedScreen: React.FC<Props> = ({
+  feed, onRefresh, refreshing, loading = false, onSelectFacilityId, userId, plans, selectedPlanId, onSelectPlan,
+}) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [actionFilter, setActionFilter] = useState<ActionFilterType>('all');
-  const [centerFilter, setCenterFilter] = useState<string>('الكل');
+  const [actionFilter, setActionFilter] = usePersistedState<ActionFilterType>(
+    `filters_feed_action_${userId}`,
+    'all',
+    ACTION_FILTERS.map((f) => f.key)
+  );
+  const [centerFilter, setCenterFilter] = usePersistedState<string>(`filters_feed_center_${userId}`, 'الكل');
 
   // Dynamically extract unique centers present in the feed
   const uniqueCenters = useMemo(() => {
@@ -249,202 +261,51 @@ export const FeedScreen: React.FC<Props> = ({ feed, onRefresh, refreshing, loadi
         </button>
       </div>
 
-      {/* Search Bar */}
+      {/* Unified filters */}
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
           backgroundColor: '#FFFFFF',
-          borderRadius: '12px',
-          border: `1.5px solid ${searchQuery ? COLORS.primary : COLORS.border}`,
-          padding: '0 10px',
-          height: '42px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+          borderRadius: '16px',
+          padding: '12px',
+          border: `1px solid ${COLORS.border}`,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+          flexShrink: 0,
         }}
       >
-        <SearchIcon size={18} color={COLORS.muted} style={{ flexShrink: 0, marginLeft: '6px' }} />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="ابحث باسم الموظف، المنشأة، المركز، أو الملاحظة..."
-          style={{
-            flex: 1,
-            border: 'none',
-            outline: 'none',
-            backgroundColor: 'transparent',
-            fontSize: '13px',
-            color: COLORS.ink,
-            fontFamily: 'inherit',
+        <FilterBar
+          dropdowns={[
+            ...(plans.length > 0
+              ? [{
+                  key: 'plan',
+                  label: 'الخطة',
+                  value: selectedPlanId,
+                  onChange: onSelectPlan,
+                  options: plans.map((p) => ({ value: p.id, label: p.month_label })),
+                }]
+              : []),
+            {
+              key: 'center',
+              label: 'المدينة',
+              value: centerFilter,
+              onChange: setCenterFilter,
+              defaultValue: 'الكل',
+              options: [
+                { value: 'الكل', label: 'كل المدن', badge: feed.length },
+                ...uniqueCenters.map((c) => ({ value: c, label: c, badge: feed.filter((i) => i.center === c).length })),
+              ],
+            },
+          ]}
+          search={{ value: searchQuery, onChange: setSearchQuery, placeholder: 'ابحث باسم الموظف، المنشأة، أو الملاحظة...' }}
+          segmented={{
+            label: 'النشاط',
+            value: actionFilter,
+            onChange: (v) => setActionFilter(v as ActionFilterType),
+            defaultValue: 'all',
+            options: ACTION_FILTERS.map((f) => ({ value: f.key, label: f.label })),
           }}
+          resultText={hasActiveFilters ? `عرض ${filteredFeed.length} من ${feed.length} نشاط` : undefined}
         />
-        {searchQuery ? (
-          <button
-            type="button"
-            onClick={() => setSearchQuery('')}
-            style={{
-              background: '#E2E8F0',
-              border: 'none',
-              borderRadius: '50%',
-              width: '20px',
-              height: '20px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              padding: 0,
-            }}
-          >
-            <XIcon size={12} color="#334155" />
-          </button>
-        ) : null}
       </div>
-
-      {/* Filter Chips: Action Types */}
-      <div
-        style={{
-          display: 'flex',
-          gap: '6px',
-          overflowX: 'auto',
-          paddingBottom: '2px',
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
-        }}
-      >
-        {ACTION_FILTERS.map((f) => {
-          const isActive = actionFilter === f.key;
-          return (
-            <button
-              key={f.key}
-              type="button"
-              onClick={() => setActionFilter(f.key)}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '20px',
-                fontSize: '12px',
-                fontWeight: '700',
-                border: `1px solid ${isActive ? COLORS.primary : '#E2E8F0'}`,
-                backgroundColor: isActive ? COLORS.primary : '#FFFFFF',
-                color: isActive ? '#FFFFFF' : '#475569',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {f.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Filter Chips: Centers (if multiple centers exist) */}
-      {uniqueCenters.length > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            overflowX: 'auto',
-            paddingBottom: '2px',
-            scrollbarWidth: 'none',
-            msOverflowStyle: 'none',
-          }}
-        >
-          <span
-            style={{
-              fontSize: '11px',
-              fontWeight: '700',
-              color: COLORS.muted,
-              whiteSpace: 'nowrap',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '3px',
-            }}
-          >
-            <FilterIcon size={12} color={COLORS.muted} />
-            <span>المركز:</span>
-          </span>
-
-          <button
-            type="button"
-            onClick={() => setCenterFilter('الكل')}
-            style={{
-              padding: '4px 10px',
-              borderRadius: '16px',
-              fontSize: '11px',
-              fontWeight: '700',
-              border: `1px solid ${centerFilter === 'الكل' ? COLORS.primaryDark : '#E2E8F0'}`,
-              backgroundColor: centerFilter === 'الكل' ? COLORS.primaryDark : '#F8FAFC',
-              color: centerFilter === 'الكل' ? '#FFFFFF' : '#64748B',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            الكل
-          </button>
-
-          {uniqueCenters.map((c) => {
-            const isActive = centerFilter === c;
-            return (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setCenterFilter(c)}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: '16px',
-                  fontSize: '11px',
-                  fontWeight: '700',
-                  border: `1px solid ${isActive ? COLORS.primaryDark : '#E2E8F0'}`,
-                  backgroundColor: isActive ? COLORS.primaryDark : '#F8FAFC',
-                  color: isActive ? '#FFFFFF' : '#64748B',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {c}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Clear Filters Prompt */}
-      {hasActiveFilters && (
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            fontSize: '12px',
-            color: COLORS.muted,
-            padding: '2px 4px',
-          }}
-        >
-          <span>
-            عرض {filteredFeed.length} من أصل {feed.length} نشاط
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setSearchQuery('');
-              setActionFilter('all');
-              setCenterFilter('الكل');
-            }}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: COLORS.primary,
-              fontWeight: '700',
-              cursor: 'pointer',
-              fontSize: '12px',
-              padding: 0,
-            }}
-          >
-            مسح الفلاتر
-          </button>
-        </div>
-      )}
 
       {/* Feed List or Empty State */}
       {loading ? (

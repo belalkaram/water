@@ -6,6 +6,7 @@ import '@fontsource/cairo/600.css';
 import '@fontsource/cairo/700.css';
 import '@fontsource/cairo/800.css';
 import './index.css';
+import './components/pickers/pickers.css';
 
 // Register service worker, and reload once when a new version takes over
 if ('serviceWorker' in navigator) {

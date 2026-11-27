@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { OFFICIAL_CENTERS, formatYmd } from '../constants';
+import { ACTIVITY_TYPES, OFFICIAL_CENTERS, formatYmd } from '../constants';
 import { COLORS } from '../theme';
 import type { Facility, User } from '../types';
 import { COMPLIANCE_ITEMS, LEVEL_COLORS, LEVEL_LABELS, OUTCOME_LABELS } from '../constants';
@@ -17,9 +17,9 @@ import {
   XCircleIcon,
 } from './Icons';
 import { api } from '../api';
+import { Select } from './pickers/Select';
 
 
-const ACTIVITY_TYPES = ['مطعم/مطبخ', 'مغسلة', 'مصنع', 'محطة/خدمات', 'مزرعة/مجزر', 'أخرى'];
 
 interface Props {
   facility: Facility;
@@ -228,24 +228,7 @@ export const FacilityDetail: React.FC<Props> = ({
               <label style={{ fontSize: '12px', fontWeight: '700', color: COLORS.ink, display: 'block', marginBottom: '4px' }}>
                 المركز:
               </label>
-              <select
-                value={editCenter}
-                onChange={(e) => setEditCenter(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  borderRadius: '8px',
-                  border: `1px solid ${COLORS.border}`,
-                  backgroundColor: '#FFFFFF',
-                  fontSize: '13px',
-                }}
-              >
-                {OFFICIAL_CENTERS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+              <Select value={editCenter} onChange={setEditCenter} options={OFFICIAL_CENTERS} title="اختر المركز" />
             </div>
           </div>
 
@@ -273,24 +256,7 @@ export const FacilityDetail: React.FC<Props> = ({
               <label style={{ fontSize: '12px', fontWeight: '700', color: COLORS.ink, display: 'block', marginBottom: '4px' }}>
                 نوع النشاط:
               </label>
-              <select
-                value={editActivity}
-                onChange={(e) => setEditActivity(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  borderRadius: '8px',
-                  border: `1px solid ${COLORS.border}`,
-                  backgroundColor: '#FFFFFF',
-                  fontSize: '13px',
-                }}
-              >
-                {ACTIVITY_TYPES.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
+              <Select value={editActivity} onChange={setEditActivity} options={ACTIVITY_TYPES} title="اختر نوع النشاط" />
             </div>
 
             <div style={{ flex: 1 }}>
@@ -398,6 +364,24 @@ export const FacilityDetail: React.FC<Props> = ({
             {` • آخر معاينة: ${formatYmd(facility.last_visit_date) || 'لم تُعاين'}`}
             {facility.target_date ? ` • تاريخ الخطة: ${facility.target_date}` : ''}
           </div>
+
+          {facility.registry && (facility.registry.owner || facility.registry.phone || facility.registry.water_qty || facility.registry.treatment_unit) && (
+            <div style={{ fontSize: '12px', color: '#334155', marginTop: '4px', textAlign: 'right', lineHeight: 1.7 }}>
+              {facility.registry.owner && <div>صاحب المنشأة: <strong>{facility.registry.owner}</strong></div>}
+              {facility.registry.phone && (
+                <div>
+                  وسيلة الاتصال: <a href={`tel:${facility.registry.phone}`} style={{ color: COLORS.primary, fontWeight: 700 }}>{facility.registry.phone}</a>
+                </div>
+              )}
+              {(facility.registry.water_qty || facility.registry.treatment_unit) && (
+                <div>
+                  {facility.registry.water_qty && `كمية المياه: ${facility.registry.water_qty}`}
+                  {facility.registry.water_qty && facility.registry.treatment_unit && ' • '}
+                  {facility.registry.treatment_unit && `وحدة المعالجة: ${facility.registry.treatment_unit}`}
+                </div>
+              )}
+            </div>
+          )}
 
           {facility.plan_notes && (
             <div style={{ fontSize: '12px', color: '#64748B', backgroundColor: '#F8FAFC', padding: '6px 8px', borderRadius: '6px', marginTop: '4px' }}>

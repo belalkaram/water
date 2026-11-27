@@ -1,16 +1,16 @@
 import React, { useMemo, useState } from 'react';
-import { OFFICIAL_CENTERS } from '../constants';
 import { COLORS } from '../theme';
 import type { Facility, MonthlyPlan, User } from '../types';
-import { Chip } from '../components/Chip';
 import { FacilityCardSkeleton, SkeletonList, SummarySkeleton } from '../components/Skeleton';
 import { FacilityCard } from '../components/FacilityCard';
 import { RefreshCwIcon, RotateCcwIcon, SearchIcon, XIcon } from '../components/Icons';
 import { api } from '../api';
 import { ExportButtons } from '../components/ExportButtons';
+import { AddFacilityModal } from '../components/AddFacilityModal';
+import { FilterBar } from '../components/FilterBar';
+import { usePersistedState } from '../utils/usePersistedState';
+import { Select } from '../components/pickers/Select';
 
-
-const ACTIVITY_TYPES = ['مطعم/مطبخ', 'مغسلة', 'مصنع', 'محطة/خدمات', 'مزرعة/مجزر', 'أخرى'];
 
 type StatusFilter = 'all' | 'available' | 'reserved' | 'completed' | 'mine';
 
@@ -18,7 +18,7 @@ const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
   { key: 'all', label: 'الكل' },
   { key: 'available', label: 'متاح' },
   { key: 'reserved', label: 'في الطريق' },
-  { key: 'completed', label: 'تمت المعاينة' },
+  { key: 'completed', label: 'تمت' },
   { key: 'mine', label: 'خاصتي' },
 ];
 
@@ -46,20 +46,17 @@ export const PlanScreen: React.FC<Props> = ({
   loading = false,
 }) => {
   const [search, setSearch] = useState('');
-  const [centerFilter, setCenterFilter] = useState('الكل');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  // filters are remembered per user on this device
+  const [centerFilter, setCenterFilter] = usePersistedState<string>(`filters_plan_center_${user.id}`, 'الكل');
+  const [statusFilter, setStatusFilter] = usePersistedState<StatusFilter>(
+    `filters_plan_status_${user.id}`,
+    'all',
+    STATUS_FILTERS.map((s) => s.key)
+  );
   const isAdmin = user.role === 'admin';
 
-  // Admin: Add Facility Modal State
+  // Add Facility Modal (all employees)
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addName, setAddName] = useState('');
-  const [addCode, setAddCode] = useState('');
-  const [addAddress, setAddAddress] = useState('');
-  const [addCenter, setAddCenter] = useState('شبين الكوم');
-  const [addDate, setAddDate] = useState('');
-  const [addActivity, setAddActivity] = useState('أخرى');
-  const [addNotes, setAddNotes] = useState('');
-  const [submittingAdd, setSubmittingAdd] = useState(false);
 
   // Admin: Bulk Reset Modal State
   const [showBulkResetModal, setShowBulkResetModal] = useState(false);
@@ -104,45 +101,23 @@ export const PlanScreen: React.FC<Props> = ({
     });
   }, [facilities, centerFilter, statusFilter, search, user.id]);
 
+  const statusCounts = useMemo(() => {
+    const c: Record<StatusFilter, number> = { all: 0, available: 0, reserved: 0, completed: 0, mine: 0 };
+    facilities.forEach((f) => {
+      if (centerFilter !== 'الكل' && f.center !== centerFilter) return;
+      c.all++;
+      c[f.status]++;
+      if (f.reserved_by_id === user.id || f.completed_by_id === user.id) c.mine++;
+    });
+    return c;
+  }, [facilities, centerFilter, user.id]);
+
   const completedCount = facilities.filter((f) => f.status === 'completed').length;
   const reservedCount = facilities.filter((f) => f.status === 'reserved').length;
   const availableCount = facilities.filter((f) => f.status === 'available').length;
   const progress = facilities.length ? Math.round((completedCount / facilities.length) * 100) : 0;
 
   const currentPlan = plans.find((p) => p.id === selectedPlanId) || plans[0];
-
-  // Admin: Create Facility Submit
-  const handleAddSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!addName.trim()) {
-      alert('اسم المنشأة مطلوب');
-      return;
-    }
-    setSubmittingAdd(true);
-    try {
-      await api.createFacility(user.code, selectedPlanId, {
-        name: addName.trim(),
-        facility_code: addCode.trim().toUpperCase(),
-        address: addAddress.trim(),
-        center: addCenter.trim(),
-        target_date: addDate.trim(),
-        activity_type: addActivity.trim(),
-        plan_notes: addNotes.trim(),
-      });
-      setShowAddModal(false);
-      setAddName('');
-      setAddCode('');
-      setAddAddress('');
-      setAddDate('');
-      setAddNotes('');
-      onRefresh();
-      alert('تمت إضافة المنشأة الجديدة بنجاح إلى الخطة!');
-    } catch (err: any) {
-      alert('خطأ في الإضافة: ' + err.message);
-    } finally {
-      setSubmittingAdd(false);
-    }
-  };
 
   // Admin: Bulk Reset Submit
   const handleBulkResetSubmit = async () => {
@@ -185,29 +160,8 @@ export const PlanScreen: React.FC<Props> = ({
         backgroundColor: '#F8FAFC',
       }}
     >
-      {/* Plan Header & Switcher */}
-      {plans.length > 1 ? (
-        <div
-          className="scroll-horizontal"
-          style={{
-            gap: '6px',
-            padding: '4px 0',
-            flexShrink: 0,
-            minHeight: '44px',
-            alignItems: 'center',
-          }}
-        >
-          {plans.map((p) => (
-            <Chip
-              key={p.id}
-              label={p.month_label}
-              active={selectedPlanId === p.id}
-              onClick={() => onSelectPlan(p.id)}
-              badge={p.total_facilities}
-            />
-          ))}
-        </div>
-      ) : currentPlan ? (
+      {/* Plan Header */}
+      {currentPlan ? (
         <div
           style={{
             display: 'flex',
@@ -229,9 +183,8 @@ export const PlanScreen: React.FC<Props> = ({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            {isAdmin && (
-              <>
-                <button
+            {selectedPlanId && (
+              <button
                   type="button"
                   onClick={() => setShowAddModal(true)}
                   style={{
@@ -249,8 +202,11 @@ export const PlanScreen: React.FC<Props> = ({
                     boxShadow: '0 1px 3px rgba(2, 132, 199, 0.25)',
                   }}
                 >
-                  <span>＋ إضافة مكان</span>
+                  <span>＋ إضافة منشأة</span>
                 </button>
+            )}
+            {isAdmin && (
+              <>
 
                 <button
                   type="button"
@@ -371,7 +327,7 @@ export const PlanScreen: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Search & Filter Section (Clean, Distinct Card) */}
+      {/* Unified filters: plan + city dropdowns, search, status segments */}
       <div
         style={{
           backgroundColor: '#FFFFFF',
@@ -379,200 +335,43 @@ export const PlanScreen: React.FC<Props> = ({
           padding: '12px',
           border: `1px solid ${COLORS.border}`,
           boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px',
           flexShrink: 0,
         }}
       >
-        {/* Search Input */}
-        <div style={{ position: 'relative', width: '100%' }}>
-          <input
-            type="search"
-            placeholder="ابحث باسم المكان، العنوان، أو الكود..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '10px 38px 10px 36px',
-              borderRadius: '12px',
-              border: `1px solid ${COLORS.border}`,
-              backgroundColor: '#F8FAFC',
-              fontSize: '13px',
-              color: COLORS.ink,
-              outline: 'none',
-              boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.02)',
-            }}
-          />
-          <div
-            style={{
-              position: 'absolute',
-              right: '12px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              pointerEvents: 'none',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            <SearchIcon size={16} color={COLORS.muted} />
-          </div>
-
-          {search ? (
-            <button
-              type="button"
-              onClick={() => setSearch('')}
-              style={{
-                position: 'absolute',
-                left: '10px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: '#CBD5E1',
-                border: 'none',
-                borderRadius: '50%',
-                width: '20px',
-                height: '20px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '11px',
-                color: '#334155',
-                cursor: 'pointer',
-                fontWeight: 'bold',
-              }}
-            >
-              <XIcon size={12} color="#334155" />
-            </button>
-          ) : null}
-        </div>
-
-        {/* Centers Horizontal Scroll Row */}
-        <div>
-          <div
-            style={{
-              fontSize: '11px',
-              fontWeight: '700',
-              color: COLORS.muted,
-              marginBottom: '5px',
-            }}
-          >
-            المراكز والمدن:
-          </div>
-          <div
-            className="scroll-horizontal"
-            style={{
-              gap: '6px',
-              padding: '2px 0 4px 0',
-              flexShrink: 0,
-              minHeight: '38px',
-              alignItems: 'center',
-            }}
-          >
-            {centersWithCount.map((item) => (
-              <Chip
-                key={item.name}
-                label={item.name}
-                active={centerFilter === item.name}
-                onClick={() => setCenterFilter(item.name)}
-                badge={item.count}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Status Horizontal Scroll Row */}
-        <div>
-          <div
-            style={{
-              fontSize: '11px',
-              fontWeight: '700',
-              color: COLORS.muted,
-              marginBottom: '5px',
-            }}
-          >
-            حالة المعاينة:
-          </div>
-          <div
-            className="scroll-horizontal"
-            style={{
-              gap: '6px',
-              padding: '2px 0 4px 0',
-              flexShrink: 0,
-              minHeight: '38px',
-              alignItems: 'center',
-            }}
-          >
-            {STATUS_FILTERS.map((sf) => {
-              const isActive = statusFilter === sf.key;
-              return (
-                <button
-                  key={sf.key}
-                  type="button"
-                  onClick={() => setStatusFilter(sf.key)}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '32px',
-                    padding: '0 12px',
-                    borderRadius: '16px',
-                    fontSize: '12px',
-                    fontWeight: isActive ? '800' : '600',
-                    border: isActive ? `1.5px solid ${COLORS.primary}` : `1px solid ${COLORS.border}`,
-                    backgroundColor: isActive ? COLORS.primary : '#F8FAFC',
-                    color: isActive ? '#FFFFFF' : '#475569',
-                    whiteSpace: 'nowrap',
-                    cursor: 'pointer',
-                    flexShrink: 0,
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  {sf.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Results Count Summary & Reset Button */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          fontSize: '12px',
-          color: COLORS.muted,
-          fontWeight: '600',
-          padding: '2px 4px',
-          flexShrink: 0,
-        }}
-      >
-        <span>
-          عرض <strong>{filteredFacilities.length}</strong> من أصل {facilities.length} منشأة
-          {centerFilter !== 'الكل' ? ` في ${centerFilter}` : ''}
-        </span>
-
-        {(search || centerFilter !== 'الكل' || statusFilter !== 'all') && (
-          <button
-            type="button"
-            onClick={() => {
-              setSearch('');
-              setCenterFilter('الكل');
-              setStatusFilter('all');
-            }}
-            style={{
-              color: COLORS.primary,
-              fontWeight: '700',
-              fontSize: '11px',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            إعادة تعيين الفلاتر
-          </button>
-        )}
+        <FilterBar
+          dropdowns={[
+            ...(plans.length > 0
+              ? [{
+                  key: 'plan',
+                  label: 'الخطة',
+                  value: selectedPlanId,
+                  onChange: onSelectPlan,
+                  options: plans.map((p) => ({ value: p.id, label: p.month_label, badge: p.total_facilities })),
+                }]
+              : []),
+            {
+              key: 'center',
+              label: 'المدينة',
+              value: centerFilter,
+              onChange: setCenterFilter,
+              defaultValue: 'الكل',
+              options: centersWithCount.map((c) => ({
+                value: c.name,
+                label: c.name === 'الكل' ? 'كل المدن' : c.name,
+                badge: c.count,
+              })),
+            },
+          ]}
+          search={{ value: search, onChange: setSearch, placeholder: 'ابحث باسم المنشأة، العنوان، أو الكود...' }}
+          segmented={{
+            label: 'الحالة',
+            value: statusFilter,
+            onChange: (v) => setStatusFilter(v as StatusFilter),
+            defaultValue: 'all',
+            options: STATUS_FILTERS.map((sf) => ({ value: sf.key, label: sf.label, badge: statusCounts[sf.key] })),
+          }}
+          resultText={`عرض ${filteredFacilities.length} من ${facilities.length} منشأة`}
+        />
       </div>
 
       <ExportButtons userCode={user.code} planId={selectedPlanId} center={centerFilter} compact />
@@ -628,243 +427,17 @@ export const PlanScreen: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Admin: Add Facility Modal */}
       {showAddModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            zIndex: 100,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '16px',
-            backdropFilter: 'blur(3px)',
+        <AddFacilityModal
+          user={user}
+          planId={selectedPlanId}
+          defaultCenter={centerFilter !== 'الكل' ? centerFilter : undefined}
+          onClose={() => setShowAddModal(false)}
+          onCreated={() => {
+            setShowAddModal(false);
+            onRefresh();
           }}
-        >
-          <div
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: '16px',
-              padding: '18px',
-              width: '100%',
-              maxWidth: '460px',
-              boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: '800', color: COLORS.ink, margin: 0 }}>
-                ＋ إضافة منشأة جديدة للخطة
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowAddModal(false)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  padding: '4px',
-                }}
-              >
-                <XIcon size={18} color={COLORS.muted} />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: '700', color: COLORS.ink, display: 'block', marginBottom: '4px' }}>
-                  مسمى المنشأة الصناعية: *
-                </label>
-                <input
-                  type="text"
-                  placeholder="مثال: مصنع الأمل للألبان، مغسلة الصفا..."
-                  value={addName}
-                  onChange={(e) => setAddName(e.target.value)}
-                  required
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: '8px',
-                    border: `1px solid ${COLORS.border}`,
-                    fontSize: '13px',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: '12px', fontWeight: '700', color: COLORS.ink, display: 'block', marginBottom: '4px' }}>
-                    كود المنشأة (اختياري):
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="مثال: SH155 أو QA30"
-                    value={addCode}
-                    onChange={(e) => setAddCode(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '9px 12px',
-                      borderRadius: '8px',
-                      border: `1px solid ${COLORS.border}`,
-                      fontSize: '13px',
-                    }}
-                  />
-                </div>
-
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: '12px', fontWeight: '700', color: COLORS.ink, display: 'block', marginBottom: '4px' }}>
-                    المركز: *
-                  </label>
-                  <select
-                    value={addCenter}
-                    onChange={(e) => setAddCenter(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '9px 12px',
-                      borderRadius: '8px',
-                      border: `1px solid ${COLORS.border}`,
-                      backgroundColor: '#FFFFFF',
-                      fontSize: '13px',
-                    }}
-                  >
-                    {OFFICIAL_CENTERS.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: '700', color: COLORS.ink, display: 'block', marginBottom: '4px' }}>
-                  العنوان التفصيلي:
-                </label>
-                <input
-                  type="text"
-                  placeholder="مثال: شبين الكوم - بجوار المستشفى العام"
-                  value={addAddress}
-                  onChange={(e) => setAddAddress(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: '8px',
-                    border: `1px solid ${COLORS.border}`,
-                    fontSize: '13px',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: '12px', fontWeight: '700', color: COLORS.ink, display: 'block', marginBottom: '4px' }}>
-                    نوع النشاط:
-                  </label>
-                  <select
-                    value={addActivity}
-                    onChange={(e) => setAddActivity(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '9px 12px',
-                      borderRadius: '8px',
-                      border: `1px solid ${COLORS.border}`,
-                      backgroundColor: '#FFFFFF',
-                      fontSize: '13px',
-                    }}
-                  >
-                    {ACTIVITY_TYPES.map((a) => (
-                      <option key={a} value={a}>
-                        {a}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: '12px', fontWeight: '700', color: COLORS.ink, display: 'block', marginBottom: '4px' }}>
-                    تاريخ المعاينة المستهدف:
-                  </label>
-                  <input
-                    type="date"
-                    value={addDate}
-                    onChange={(e) => setAddDate(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: '8px',
-                      border: `1px solid ${COLORS.border}`,
-                      fontSize: '13px',
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: '700', color: COLORS.ink, display: 'block', marginBottom: '4px' }}>
-                  ملاحظات الخطة:
-                </label>
-                <input
-                  type="text"
-                  placeholder="أي تعليمات أو ملاحظات للمفتش"
-                  value={addNotes}
-                  onChange={(e) => setAddNotes(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    borderRadius: '8px',
-                    border: `1px solid ${COLORS.border}`,
-                    fontSize: '13px',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-                <button
-                  type="submit"
-                  disabled={submittingAdd}
-                  style={{
-                    flex: 1,
-                    padding: '11px',
-                    backgroundColor: COLORS.primary,
-                    color: '#FFFFFF',
-                    borderRadius: '10px',
-                    fontSize: '13px',
-                    fontWeight: '800',
-                    cursor: submittingAdd ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {submittingAdd ? 'جارٍ الحفظ...' : 'إضافة المنشأة للخطة'}
-                </button>
-
-                <button
-                  type="button"
-                  disabled={submittingAdd}
-                  onClick={() => setShowAddModal(false)}
-                  style={{
-                    padding: '11px 16px',
-                    backgroundColor: '#E2E8F0',
-                    color: '#334155',
-                    borderRadius: '10px',
-                    fontSize: '13px',
-                    fontWeight: '700',
-                    cursor: 'pointer',
-                  }}
-                >
-                  إلغاء
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        />
       )}
 
       {/* Admin: Bulk Reset Modal */}
@@ -925,22 +498,16 @@ export const PlanScreen: React.FC<Props> = ({
               <label style={{ fontSize: '12px', fontWeight: '700', color: COLORS.ink, display: 'block', marginBottom: '4px' }}>
                 أي المنشآت تريد إعادة فتحها؟
               </label>
-              <select
+              <Select
                 value={bulkTarget}
-                onChange={(e) => setBulkTarget(e.target.value as any)}
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  borderRadius: '8px',
-                  border: `1px solid ${COLORS.border}`,
-                  backgroundColor: '#FFFFFF',
-                  fontSize: '13px',
-                }}
-              >
-                <option value="completed">المنشآت المكتملة فقط ({completedCount} منشأة)</option>
-                <option value="reserved">المنشآت المحجوزة في الطريق فقط ({reservedCount} منشأة)</option>
-                <option value="all">كافة المنشآت المقفولة والمحجوزة</option>
-              </select>
+                onChange={(v) => setBulkTarget(v as any)}
+                title="أي المنشآت تريد إعادة فتحها؟"
+                options={[
+                  { value: 'completed', label: 'المنشآت المكتملة فقط', hint: `${completedCount} منشأة` },
+                  { value: 'reserved', label: 'المنشآت المحجوزة في الطريق فقط', hint: `${reservedCount} منشأة` },
+                  { value: 'all', label: 'كافة المنشآت المقفولة والمحجوزة' },
+                ]}
+              />
             </div>
 
             <div>

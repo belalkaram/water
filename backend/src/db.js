@@ -180,6 +180,16 @@ async function initDb() {
       updated_at TEXT NOT NULL
     );
   `);
+  // جلسات الدخول (لها مدة صلاحية تُدار من السيرفر فقط)
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    )
+  `);
+  await p.query(`CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at)`);
   await p.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS plan_month TEXT`);
   await p.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS generated_by TEXT DEFAULT 'manual'`);
   await p.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_centers TEXT NOT NULL DEFAULT '[]'`);
@@ -196,6 +206,27 @@ async function initDb() {
   await p.query(`UPDATE inspections SET visit_date = SUBSTRING(created_at, 1, 10) WHERE COALESCE(visit_date, '') = ''`);
   await p.query(`ALTER TABLE facilities ADD COLUMN IF NOT EXISTS carried_from TEXT DEFAULT ''`);
   await p.query(`CREATE INDEX IF NOT EXISTS idx_fac_code ON facilities(facility_code)`);
+  // التسلسل اليدوي للمنشآت المضافة من التطبيق
+  await p.query(`ALTER TABLE establishments ADD COLUMN IF NOT EXISTS serial_no INTEGER`);
+  await p.query(`CREATE INDEX IF NOT EXISTS idx_fac_serial ON facilities(serial_no)`);
+  // فصل الأقسام المدمجة القديمة (مطعم/مطبخ، محطة/خدمات، مزرعة/مجزر) إلى قسم واحد لكل منشأة
+  {
+    const { detectActivityType } = require('./utils/centerParser');
+    const fallback = { 'مطعم/مطبخ': 'مطعم', 'محطة/خدمات': 'محطة وقود', 'مزرعة/مجزر': 'مزرعة' };
+    for (const table of ['establishments', 'facilities']) {
+      const { rows: old } = await p.query(`SELECT id, name, activity_type FROM ${table} WHERE activity_type LIKE '%/%'`);
+      const byType = {};
+      for (const r of old) {
+        let t = detectActivityType(r.name);
+        if (t === 'أخرى') t = fallback[r.activity_type] || 'أخرى';
+        (byType[t] = byType[t] || []).push(r.id);
+      }
+      for (const [t, ids] of Object.entries(byType)) {
+        await p.query(`UPDATE ${table} SET activity_type = $1 WHERE id = ANY($2)`, [t, ids]);
+      }
+      if (old.length) console.log(`✅ فصل أقسام النشاط: ${old.length} صف في ${table}`);
+    }
+  }
   await p.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_plans_month ON plans(plan_month) WHERE plan_month IS NOT NULL`);
   await p.query(`CREATE INDEX IF NOT EXISTS idx_est_center ON establishments(center, is_active)`);
 

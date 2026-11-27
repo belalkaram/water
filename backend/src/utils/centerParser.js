@@ -97,13 +97,22 @@ function parseExcelRows(rawRows) {
   return parsed;
 }
 
+// كل قسم نشاط منفصل (لا يوجد قسمان في اختيار واحد). الترتيب مهم: الأكثر تحديداً أولاً.
 const ACTIVITY_KEYWORDS = [
-  { type: 'مطعم/مطبخ', keywords: ['مطعم', 'مطبخ', 'كشري', 'كشرى', 'كافيه', 'كافية', 'كافتريا', 'حلواني', 'مخبز', 'فطائر', 'شاورما', 'بيتزا'] },
-  { type: 'مغسلة', keywords: ['مغسلة', 'غسيل', 'مغسله'] },
-  { type: 'مصنع', keywords: ['مصنع', 'شركة', 'معمل', 'مسبك', 'ورشة'] },
-  { type: 'محطة/خدمات', keywords: ['محطة', 'بنزين', 'جراج', 'تغيير زيوت', 'سنترال'] },
-  { type: 'مزرعة/مجزر', keywords: ['مزرعة', 'مجزر', 'دواجن', 'ألبان', 'البان'] },
+  { type: 'مجزر', keywords: ['مجزر', 'سلخانة', 'سلخانه'] },
+  { type: 'مغسلة', keywords: ['مغسلة', 'مغسله', 'غسيل'] },
+  { type: 'مخبز', keywords: ['مخبز', 'فطائر', 'فرن'] },
+  { type: 'حلواني', keywords: ['حلواني', 'حلوانى'] },
+  { type: 'كافيه', keywords: ['كافيه', 'كافية', 'كافتريا', 'كوفي'] },
+  { type: 'مطعم', keywords: ['مطعم', 'كشري', 'كشرى', 'شاورما', 'بيتزا'] },
+  { type: 'مطبخ', keywords: ['مطبخ'] },
+  { type: 'محطة وقود', keywords: ['محطة', 'بنزين'] },
+  { type: 'مركز خدمة سيارات', keywords: ['جراج', 'تغيير زيوت', 'مركز صيانة'] },
+  { type: 'مصنع', keywords: ['مصنع', 'شركة', 'معمل', 'مسبك'] },
+  { type: 'ورشة', keywords: ['ورشة', 'ورشه'] },
+  { type: 'مزرعة', keywords: ['مزرعة', 'مزرعه', 'دواجن', 'ألبان', 'البان'] },
 ];
+const ACTIVITY_TYPES = [...ACTIVITY_KEYWORDS.map((k) => k.type), 'أخرى'];
 
 function detectActivityType(name) {
   const n = String(name || '');
@@ -113,4 +122,4 @@ function detectActivityType(name) {
   return 'أخرى';
 }
 
-module.exports = { detectCenter, detectActivityType, parseExcelRows };
+module.exports = { detectCenter, detectActivityType, parseExcelRows, ACTIVITY_TYPES };

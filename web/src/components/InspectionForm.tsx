@@ -19,6 +19,7 @@ import { Chip } from './Chip';
 import { SignaturePad } from './SignaturePad';
 import { api } from '../api';
 import { CheckCircleIcon, CrosshairIcon, PenToolIcon } from './Icons';
+import { DatePicker } from './pickers/DatePicker';
 
 interface Props {
   user: User;
@@ -347,23 +348,15 @@ export const InspectionForm: React.FC<Props> = ({ user, facility, onDone, onCanc
             <div style={{ fontSize: '12px', color: COLORS.muted, marginBottom: '8px', lineHeight: 1.6 }}>
               هذا التاريخ يحدّث «تاريخ آخر معاينة» في الخطة الأساسية فوراً، ومنه يبدأ عدّ الـ 6 شهور للمعاينة القادمة.
             </div>
-            <input
+            <DatePicker
               id="visit-date"
-              type="date"
-              required
+              size="lg"
               value={visitDate}
               min={minVisitDate}
               max={maxVisitDate}
-              onChange={(e) => setVisitDate(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '12px',
-                borderRadius: '10px',
-                border: `1px solid ${COLORS.border}`,
-                backgroundColor: '#FFF',
-                fontWeight: 700,
-                color: COLORS.ink,
-              }}
+              onChange={setVisitDate}
+              clearable={false}
+              title="تاريخ المعاينة"
             />
             {visitDate && (
               <div style={{ fontSize: '12px', color: COLORS.primary, fontWeight: 700, marginTop: '6px' }}>

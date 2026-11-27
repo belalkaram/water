@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { FilterBar } from '../components/FilterBar';
 import { COLORS } from '../theme';
-import type { ConflictItem, Facility, PlanStats, User } from '../types';
+import type { ConflictItem, Facility, MonthlyPlan, PlanStats, User } from '../types';
 import { LEVEL_COLORS, LEVEL_LABELS, type ViolationLevel } from '../constants';
 import { api } from '../api';
 import { WorkersPanel } from '../components/WorkersPanel';
@@ -22,9 +23,11 @@ interface Props {
   facilities: Facility[];
   planId: string;
   onRefresh: () => void;
+  plans: MonthlyPlan[];
+  onSelectPlan: (id: string) => void;
 }
 
-export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefresh }) => {
+export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefresh, plans, onSelectPlan }) => {
   const [monthLabel, setMonthLabel] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [stats, setStats] = useState<PlanStats | null>(null);
@@ -275,6 +278,17 @@ export const AdminScreen: React.FC<Props> = ({ user, facilities, planId, onRefre
           gap: '12px',
         }}
       >
+        {plans.length > 1 && (
+          <FilterBar
+            dropdowns={[{
+              key: 'plan',
+              label: 'الخطة',
+              value: planId,
+              onChange: onSelectPlan,
+              options: plans.map((p) => ({ value: p.id, label: p.month_label, badge: p.total_facilities })),
+            }]}
+          />
+        )}
         <h2 style={{ fontSize: '17px', fontWeight: '800', color: COLORS.ink }}>
           لوحة الإحصائيات {stats ? `— ${stats.plan.month_label}` : ''}
         </h2>

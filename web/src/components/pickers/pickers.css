@@ -1,0 +1,682 @@
+/* ─── Trigger (shared by Select / DatePicker / MonthPicker) ─────────────── */
+.pk-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  min-height: 40px;
+  border-radius: 10px;
+  border: 1px solid #dce6ee;
+  background: #fff;
+  color: #0f293a;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
+}
+.pk-trigger.pk-lg {
+  min-height: 48px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.pk-trigger:hover:not(:disabled) {
+  border-color: #9cc3da;
+}
+.pk-trigger:focus-visible,
+.pk-trigger.pk-open {
+  outline: none;
+  border-color: #006b9f;
+  box-shadow: 0 0 0 3px rgba(0, 107, 159, 0.14);
+}
+.pk-trigger:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+.pk-value,
+.pk-placeholder {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pk-placeholder {
+  color: #94a3b8;
+  font-weight: 500;
+}
+.pk-icon {
+  color: #006b9f;
+  flex-shrink: 0;
+}
+.pk-chevron {
+  color: #5a7184;
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+.pk-open .pk-chevron {
+  transform: rotate(180deg);
+}
+
+/* ─── Desktop popover ───────────────────────────────────────────────────── */
+.pk-popover {
+  z-index: 1000;
+  background: #fff;
+  border: 1px solid #dce6ee;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(15, 41, 58, 0.16), 0 2px 6px rgba(15, 41, 58, 0.06);
+  overflow: hidden;
+  animation: pk-pop 0.14s ease-out;
+}
+@keyframes pk-pop {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ─── Mobile bottom sheet ───────────────────────────────────────────────── */
+.pk-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 41, 58, 0.45);
+  display: flex;
+  align-items: flex-end;
+  animation: pk-fade 0.18s ease-out;
+}
+.pk-sheet {
+  width: 100%;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  box-shadow: 0 -8px 30px rgba(15, 41, 58, 0.2);
+  animation: pk-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.pk-sheet-handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 4px;
+  background: #cbd5e1;
+  margin: 8px auto 2px;
+}
+.pk-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px 10px;
+  border-bottom: 1px solid #eef2f6;
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f293a;
+}
+.pk-sheet-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: #f1f5f9;
+  color: #5a7184;
+  font-size: 14px;
+  cursor: pointer;
+}
+.pk-sheet-body {
+  overflow-y: auto;
+  padding-bottom: 10px;
+}
+@keyframes pk-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pk-up { from { transform: translateY(100%); } to { transform: none; } }
+
+/* ─── Options list ──────────────────────────────────────────────────────── */
+.pk-search {
+  padding: 8px;
+  border-bottom: 1px solid #eef2f6;
+}
+.pk-search input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #dce6ee;
+  background: #f8fafc;
+  font: inherit;
+  font-size: 13px;
+}
+.pk-search input:focus {
+  outline: none;
+  border-color: #006b9f;
+  background: #fff;
+}
+.pk-list {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px;
+}
+.pk-sheet .pk-list {
+  max-height: none;
+  padding: 6px 10px;
+}
+.pk-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f293a;
+  cursor: pointer;
+  user-select: none;
+}
+.pk-sheet .pk-option {
+  padding: 14px 14px;
+  font-size: 15px;
+  border-bottom: 1px solid #f1f5f9;
+  border-radius: 10px;
+}
+.pk-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.pk-option-text small {
+  font-size: 11px;
+  font-weight: 500;
+  color: #5a7184;
+}
+.pk-option.pk-active {
+  background: #f1f7fb;
+}
+.pk-option.pk-selected {
+  background: #e6f2f8;
+  color: #006b9f;
+  font-weight: 800;
+}
+.pk-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+/* ─── Calendar (react-day-picker theme) ─────────────────────────────────── */
+.pk-calendar {
+  padding: 10px 12px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.pk-calendar .rdp-root {
+  --rdp-accent-color: #006b9f;
+  --rdp-accent-background-color: #e6f2f8;
+  --rdp-day-height: 40px;
+  --rdp-day-width: 40px;
+  --rdp-day_button-height: 36px;
+  --rdp-day_button-width: 36px;
+  --rdp-day_button-border-radius: 10px;
+  --rdp-selected-border: 0;
+  --rdp-today-color: #006b9f;
+  --rdp-nav-height: 40px;
+  --rdp-nav_button-height: 32px;
+  --rdp-nav_button-width: 32px;
+  font-family: inherit;
+  margin: 0;
+}
+.pk-calendar .rdp-month_caption {
+  display: none; /* replaced by .pk-head */
+}
+.pk-calendar .rdp-weekday {
+  font-size: 12px;
+  font-weight: 700;
+  color: #5a7184;
+  opacity: 1;
+}
+.pk-calendar .rdp-day_button {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f293a;
+  transition: background-color 0.12s;
+}
+.pk-calendar .rdp-day_button:hover:not(:disabled) {
+  background: #f1f7fb;
+}
+.pk-calendar .rdp-today:not(.rdp-selected) .rdp-day_button {
+  color: #006b9f;
+  font-weight: 800;
+  box-shadow: inset 0 0 0 1.5px #9cc3da;
+}
+.pk-calendar .rdp-selected {
+  font-size: 14px;
+  font-weight: 800;
+}
+.pk-calendar .rdp-selected .rdp-day_button {
+  background: #006b9f;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 107, 159, 0.35);
+}
+.pk-calendar .rdp-outside .rdp-day_button {
+  color: #b6c3cf;
+}
+.pk-calendar .rdp-disabled .rdp-day_button {
+  color: #d3dbe2;
+  cursor: not-allowed;
+}
+.pk-calendar .rdp-button_previous,
+.pk-calendar .rdp-button_next {
+  border-radius: 8px;
+  background: #f1f5f9;
+}
+.pk-calendar .rdp-chevron {
+  transform: scaleX(-1); /* RTL: السابق يشير لليمين والتالي لليسار */
+  fill: #006b9f;
+  width: 14px;
+  height: 14px;
+}
+.pk-calendar .rdp-button_previous:disabled .rdp-chevron,
+.pk-calendar .rdp-button_next:disabled .rdp-chevron {
+  fill: #cbd5e1;
+}
+.pk-sheet .pk-calendar .rdp-root {
+  --rdp-day-height: 46px;
+  --rdp-day-width: 46px;
+  --rdp-day_button-height: 42px;
+  --rdp-day_button-width: 42px;
+}
+@media (max-width: 360px) {
+  .pk-sheet .pk-calendar .rdp-root {
+    --rdp-day-height: 40px;
+    --rdp-day-width: 40px;
+    --rdp-day_button-height: 36px;
+    --rdp-day_button-width: 36px;
+  }
+}
+.pk-cal-foot {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid #eef2f6;
+  margin-top: 6px;
+  padding-top: 8px;
+}
+.pk-link {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  color: #006b9f;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.pk-link:hover:not(:disabled) {
+  background: #f1f7fb;
+}
+.pk-link:disabled {
+  color: #cbd5e1;
+  cursor: not-allowed;
+}
+.pk-link-muted {
+  color: #dc2626;
+}
+
+/* ─── Calendar header: arrows + clickable month / year ───────────────── */
+.pk-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.pk-head-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.pk-head-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f293a;
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s;
+}
+.pk-head-btn svg {
+  color: #5a7184;
+}
+.pk-head-btn:hover,
+.pk-head-btn-on {
+  background: #e6f2f8;
+  color: #006b9f;
+}
+.pk-head-btn:hover svg,
+.pk-head-btn-on svg {
+  color: #006b9f;
+}
+.pk-head-range {
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f293a;
+}
+.pk-nav {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  border: none;
+  background: #f1f5f9;
+  color: #006b9f;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+.pk-nav:hover:not(:disabled) {
+  background: #e6f2f8;
+}
+.pk-nav:disabled {
+  color: #cbd5e1;
+  cursor: not-allowed;
+}
+
+/* ─── Views (days / months / years) keep the same height so nothing jumps ── */
+.pk-view {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  animation: pk-fade 0.15s ease-out;
+}
+.pk-calendar .pk-view-days,
+.pk-calendar .pk-view-months,
+.pk-calendar .pk-view-years {
+  min-height: 276px;
+}
+.pk-sheet .pk-calendar .pk-view-days,
+.pk-sheet .pk-calendar .pk-view-months,
+.pk-sheet .pk-calendar .pk-view-years {
+  min-height: 312px;
+}
+
+/* ─── Month / year grid ─────────────────────────────────────────────────── */
+.pk-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: 1fr;
+  gap: 8px;
+  align-content: center;
+  padding: 4px 2px;
+}
+.pk-cell {
+  min-height: 52px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: #f8fafc;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f293a;
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s;
+}
+.pk-sheet .pk-cell {
+  min-height: 60px;
+  font-size: 15px;
+}
+.pk-cell:hover:not(:disabled) {
+  background: #e6f2f8;
+  color: #006b9f;
+}
+.pk-cell.pk-now {
+  border-color: #9cc3da;
+  color: #006b9f;
+}
+.pk-cell.pk-selected {
+  background: #006b9f;
+  border-color: #006b9f;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 107, 159, 0.3);
+}
+.pk-cell:disabled {
+  background: transparent;
+  color: #d3dbe2;
+  cursor: not-allowed;
+}
+
+/* ─── Mobile: match the app's 16px inputs and give bigger touch targets ── */
+@media (max-width: 640px) {
+  .pk-trigger,
+  .pk-trigger.pk-lg {
+    min-height: 48px;
+    font-size: 16px;
+    border-radius: 12px;
+  }
+  .pk-search input {
+    font-size: 16px; /* prevents iOS zoom on focus */
+    padding: 11px 12px;
+  }
+}
+
+/* ─── Select extras: prefix label, count badge, active-filter highlight ── */
+.pk-prefix {
+  color: #5a7184;
+  font-weight: 600;
+  margin-left: 4px;
+}
+.pk-highlight {
+  border-color: #006b9f;
+  background: #f1f7fb;
+}
+.pk-highlight .pk-value {
+  color: #006b9f;
+  font-weight: 800;
+}
+.pk-option-text {
+  flex: 1;
+  min-width: 0;
+}
+.pk-badge {
+  min-width: 26px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #eef2f6;
+  color: #5a7184;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+.pk-option.pk-selected .pk-badge {
+  background: #006b9f;
+  color: #fff;
+}
+
+/* ─── FilterBar (shared by every page) ──────────────────────────────────── */
+.fb {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fb-dropdowns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+.fb-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid #dce6ee;
+  background: #fff;
+  color: #5a7184;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.fb-search:focus-within,
+.fb-search-on {
+  border-color: #006b9f;
+  box-shadow: 0 0 0 3px rgba(0, 107, 159, 0.12);
+}
+.fb-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: #0f293a;
+}
+.fb-search input::-webkit-search-cancel-button {
+  display: none;
+}
+.fb-search-clear {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+/* segmented control: equal-width options that always fit — no sideways scrolling */
+.fb-seg {
+  display: flex;
+  padding: 3px;
+  gap: 3px;
+  border-radius: 12px;
+  background: #eef2f6;
+}
+.fb-seg-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  line-height: 1.2;
+  transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.fb-seg-btn:hover:not(.fb-seg-on) {
+  color: #006b9f;
+}
+.fb-seg-on {
+  background: #fff;
+  color: #006b9f;
+  font-weight: 800;
+  box-shadow: 0 1px 3px rgba(15, 41, 58, 0.12);
+}
+.fb-seg-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fb-seg-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(90, 113, 132, 0.14);
+}
+.fb-seg-on .fb-seg-badge {
+  background: #006b9f;
+  color: #fff;
+}
+.fb-active {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.fb-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #b9d7e8;
+  background: #e6f2f8;
+  color: #006b9f;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.fb-pill-x {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #006b9f;
+  color: #fff;
+  font-size: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.fb-clear {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  color: #dc2626;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+.fb-result {
+  margin-right: auto; /* RTL: push to the far left */
+  font-size: 12px;
+  color: #5a7184;
+}
+@media (max-width: 640px) {
+  .fb-dropdowns {
+    grid-template-columns: 1fr 1fr;
+  }
+  .fb-dropdowns > :only-child {
+    grid-column: 1 / -1;
+  }
+  .fb-search {
+    height: 48px;
+    border-radius: 12px;
+  }
+  .fb-search input {
+    font-size: 16px;
+  }
+  .fb-seg-btn {
+    min-height: 42px;
+    font-size: 12px;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .fb-dropdowns .pk-prefix {
+    display: none; /* tight on phones — the value alone is clear */
+  }
+}

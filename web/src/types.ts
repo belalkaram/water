@@ -87,6 +87,24 @@ export interface Facility {
   carried_from?: string;
   last_visit_date?: string;
   inspection?: Inspection | null;
+  /** بيانات السجل الدائم (نفس أعمدة شيت الإكسيل) */
+  registry?: { owner: string; phone: string; water_qty: string; treatment_unit: string; status_raw: string } | null;
+}
+
+export interface NewFacilityInput {
+  serial_no: number;
+  name: string;
+  facility_code: string;
+  center: string;
+  address?: string;
+  owner?: string;
+  phone?: string;
+  activity_type?: string;
+  water_qty?: string;
+  treatment_unit?: string;
+  last_visit_date?: string;
+  target_date?: string;
+  plan_notes?: string;
 }
 
 export interface ActivityItem {
