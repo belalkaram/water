@@ -339,3 +339,194 @@ body {
     gap: 3px !important;
   }
 }
+
+/* ─── «عرض المنشآت» page ─────────────────────────────────────────────── */
+.est-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: #F4F8FB;
+  padding: 12px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.est-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 38px;
+  padding: 0 12px 0 10px;
+  border-radius: 12px;
+  border: 1px solid #DCE6EE;
+  background: #fff;
+  color: #006B9F;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.est-views {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  background: #EEF2F6;
+  flex-shrink: 0;
+}
+.est-views button {
+  width: 34px;
+  height: 32px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: #5A7184;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.est-views button.on {
+  background: #fff;
+  color: #006B9F;
+  box-shadow: 0 1px 3px rgba(15, 41, 58, 0.12);
+}
+.est-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+.est-card {
+  background: #fff;
+  border: 1px solid #DCE6EE;
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.est-large .est-card {
+  padding: 16px 18px;
+  gap: 8px;
+}
+.est-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 12px;
+}
+.est-list {
+  gap: 6px;
+}
+.est-code {
+  font-size: 12px;
+  font-weight: 800;
+  font-family: monospace, sans-serif;
+  background: #F1F5F9;
+  color: #334155;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid #E2E8F0;
+  flex-shrink: 0;
+  direction: ltr;
+}
+/* text on the cards can be selected and copied (the app disables selection elsewhere) */
+.est-sel,
+.est-sel * {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.est-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12.5px;
+  min-width: 0;
+}
+.est-field-label {
+  color: #5A7184;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.est-field .est-sel {
+  color: #0F293A;
+  font-weight: 700;
+}
+.est-copy {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #5A7184;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  margin-top: -3px;
+}
+.est-copy:hover {
+  background: #E6F2F8;
+  color: #006B9F;
+  border-color: #B9DAEA;
+}
+.est-copy-all {
+  flex-shrink: 0;
+  border: 1px solid #B9DAEA;
+  background: #E6F2F8;
+  color: #006B9F;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 8px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.est-more {
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #DCE6EE;
+  background: #fff;
+  color: #006B9F;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.est-toast {
+  position: sticky;
+  bottom: 12px;
+  margin: 12px auto 0;
+  width: fit-content;
+  max-width: 90%;
+  background: #0F293A;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 16px;
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(15, 41, 58, 0.25);
+}
+@media (max-width: 420px) {
+  .est-back span { display: none; }
+  .est-back { padding: 0 9px; }
+  .est-head { gap: 8px; }
+}
+/* tablets & desktop: several cards per row, sized by the chosen view */
+@media (min-width: 700px) {
+  .est-small { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .est-large { grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 14px; }
+  .est-list { grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
+  .est-grid { align-items: start; }
+}
+@media (min-width: 900px) {
+  /* the sticky header must sit at the very top, or cards show through the gap above it while scrolling */
+  .est-page.screen { padding-top: 0 !important; }
+  .est-head { padding-top: 20px; }
+}

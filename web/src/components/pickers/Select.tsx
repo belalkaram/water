@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { PickerShell } from './PickerShell';
+import { PickerShell, useIsMobile } from './PickerShell';
 
 export interface SelectOption {
   value: string;
@@ -37,6 +37,11 @@ export const Select: React.FC<Props> = ({ value, onChange, options, placeholder 
   const [active, setActive] = useState(0);
   const btnRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // Scroll the list only when opening or moving with the keyboard. Scrolling on hover/touch made
+  // phones pick the wrong item: the tap's emulated mouseenter scrolled the list under the finger,
+  // so the click then landed on the option above (tap the 4th → got the 3rd).
+  const scrollOnActive = useRef(false);
+  const mobile = useIsMobile();
   const showSearch = searchable ?? opts.length > 8;
 
   const filtered = useMemo(() => {
@@ -49,11 +54,13 @@ export const Select: React.FC<Props> = ({ value, onChange, options, placeholder 
   useEffect(() => {
     if (!open) return;
     setQ('');
+    scrollOnActive.current = true;
     setActive(Math.max(0, opts.findIndex((o) => o.value === value)));
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !scrollOnActive.current) return;
+    scrollOnActive.current = false;
     // scroll only the list's own container (scrollIntoView can shift the whole page sideways on mobile)
     const el = listRef.current?.querySelector<HTMLElement>(`[data-idx="${active}"]`);
     const box = (listRef.current?.closest('.pk-sheet-body') as HTMLElement | null) || listRef.current;
@@ -80,9 +87,11 @@ export const Select: React.FC<Props> = ({ value, onChange, options, placeholder 
     }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
+      scrollOnActive.current = true;
       setActive((i) => Math.min(filtered.length - 1, i + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
+      scrollOnActive.current = true;
       setActive((i) => Math.max(0, i - 1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
@@ -118,7 +127,7 @@ export const Select: React.FC<Props> = ({ value, onChange, options, placeholder 
         {showSearch && (
           <div className="pk-search">
             <input
-              autoFocus
+              autoFocus={!mobile /* on phones the keyboard popping up/down shifts the sheet under the finger */}
               value={q}
               onChange={(e) => {
                 setQ(e.target.value);
@@ -140,7 +149,9 @@ export const Select: React.FC<Props> = ({ value, onChange, options, placeholder 
                 role="option"
                 aria-selected={selected}
                 className={`pk-option${selected ? ' pk-selected' : ''}${i === active ? ' pk-active' : ''}`}
-                onMouseEnter={() => setActive(i)}
+                onPointerEnter={(e) => {
+                  if (e.pointerType === 'mouse') setActive(i);
+                }}
                 onClick={() => pick(o.value)}
               >
                 <span className="pk-option-text">

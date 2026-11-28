@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { COLORS } from '../theme';
 import type { Establishment } from '../types';
+import { usePersistedState } from '../utils/usePersistedState';
 import { FilterBar } from './FilterBar';
-import { MapPinIcon, XIcon } from './Icons';
+import { MapPinIcon } from './Icons';
 import { FacilityCardSkeleton, SkeletonList } from './Skeleton';
 
 interface Props {
@@ -16,8 +18,13 @@ interface Props {
 
 const PAGE = 60;
 type StatusKey = 'active' | 'closed' | 'all';
+const VIEWS = ['list', 'small', 'large'] as const;
+type ViewMode = (typeof VIEWS)[number];
 
-/** View-only page of every establishment in the permanent registry (Excel import + ones employees added). */
+/**
+ * View-only page of every establishment in the permanent registry (Excel import + ones employees added).
+ * Rendered inside the app's main area (under the top bar, next to the navigation) — not over them.
+ */
 export const EstablishmentsView: React.FC<Props> = ({ isOpen, onClose, userCode, initialCenter }) => {
   const [rows, setRows] = useState<Establishment[]>([]);
   const [loading, setLoading] = useState(false);
@@ -26,6 +33,8 @@ export const EstablishmentsView: React.FC<Props> = ({ isOpen, onClose, userCode,
   const [status, setStatus] = useState<StatusKey>('active');
   const [search, setSearch] = useState('');
   const [limit, setLimit] = useState(PAGE);
+  const [view, setView] = usePersistedState<ViewMode>('establishments_view', 'small', VIEWS);
+  const [toast, setToast] = useState('');
 
   const load = () => {
     setLoading(true);
@@ -47,17 +56,36 @@ export const EstablishmentsView: React.FC<Props> = ({ isOpen, onClose, userCode,
     setCenter(initialCenter && initialCenter !== 'الكل' ? initialCenter : 'الكل');
     setLimit(PAGE);
     load();
-    document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
-    return () => {
-      document.body.style.overflow = '';
-      window.removeEventListener('keydown', onKey);
-    };
+    return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   useEffect(() => setLimit(PAGE), [center, status, search]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(''), 1600);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const copy = async (text: string, what: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // older browsers / non-secure context
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    setToast(`تم نسخ ${what}`);
+  };
 
   const byStatus = useMemo(
     () => rows.filter((r) => (status === 'all' ? true : status === 'active' ? r.is_active : !r.is_active)),
@@ -85,165 +113,252 @@ export const EstablishmentsView: React.FC<Props> = ({ isOpen, onClose, userCode,
   );
 
   if (!isOpen) return null;
+  const host = document.querySelector('.app-main');
 
-  return (
+  const page = (
     <div
-      role="dialog"
-      aria-modal="true"
+      role="region"
       aria-label="عرض المنشآت"
-      style={{ position: 'fixed', inset: 0, zIndex: 60, backgroundColor: COLORS.bg, overflowY: 'auto', direction: 'rtl' }}
+      className="screen est-page scroll-container"
+      style={{
+        position: host ? 'absolute' : 'fixed', inset: 0, zIndex: 30, backgroundColor: COLORS.bg,
+        overflowY: 'auto', direction: 'rtl', padding: '0 14px 28px',
+      }}
     >
-      <div style={{ maxWidth: '500px', margin: '0 auto', padding: '0 14px 40px' }}>
-        <div
-          style={{
-            position: 'sticky', top: 0, zIndex: 2, backgroundColor: COLORS.bg, padding: '14px 0 10px',
-            display: 'flex', alignItems: 'center', gap: '10px',
-          }}
-        >
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '18px', fontWeight: 800, color: COLORS.ink }}>عرض المنشآت</div>
-            <div style={{ fontSize: '12px', color: COLORS.muted, fontWeight: 600 }}>
-              كل المنشآت المسجلة في السيستم — للعرض فقط
-            </div>
+      <div className="est-head">
+        <button type="button" onClick={onClose} className="est-back" aria-label="رجوع">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 6l6 6-6 6" />
+          </svg>
+          <span>رجوع</span>
+        </button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '18px', fontWeight: 800, color: COLORS.ink }}>عرض المنشآت</div>
+          <div className="text-ellipsis" style={{ fontSize: '12px', color: COLORS.muted, fontWeight: 600 }}>
+            كل المنشآت المسجلة في السيستم — للعرض فقط
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="إغلاق"
-            style={{
-              width: '40px', height: '40px', borderRadius: '12px', border: `1px solid ${COLORS.border}`,
-              backgroundColor: COLORS.surface, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', flexShrink: 0,
-            }}
-          >
-            <XIcon size={20} color={COLORS.ink} />
-          </button>
         </div>
-
-        <FilterBar
-          dropdowns={[
-            {
-              key: 'center',
-              label: 'المدينة',
-              value: center,
-              onChange: setCenter,
-              defaultValue: 'الكل',
-              options: [
-                { value: 'الكل', label: 'كل المدن', badge: byStatus.length },
-                ...centers.map(([c, n]) => ({ value: c, label: c, badge: n })),
-              ],
-            },
-          ]}
-          search={{ value: search, onChange: setSearch, placeholder: 'ابحث بالاسم، الكود، العنوان أو التليفون...' }}
-          segmented={{
-            label: 'الحالة',
-            value: status,
-            onChange: (v) => setStatus(v as StatusKey),
-            defaultValue: 'active',
-            options: [
-              { value: 'active', label: 'نشطة', badge: statusCounts.active },
-              { value: 'closed', label: 'مغلقة', badge: statusCounts.closed },
-              { value: 'all', label: 'الكل', badge: statusCounts.all },
-            ],
-          }}
-          resultText={loading ? 'جارٍ التحميل…' : `عرض ${filtered.length} من ${rows.length} منشأة`}
-        />
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
-          {loading ? (
-            <SkeletonList count={6}><FacilityCardSkeleton /></SkeletonList>
-          ) : error ? (
-            <div style={{ textAlign: 'center', padding: '30px 10px', color: COLORS.red, fontWeight: 700 }}>
-              {error}
-              <div>
-                <button
-                  type="button"
-                  onClick={load}
-                  style={{
-                    marginTop: '12px', padding: '10px 18px', borderRadius: '10px', border: 'none',
-                    backgroundColor: COLORS.primary, color: '#fff', fontWeight: 800, cursor: 'pointer',
-                  }}
-                >
-                  إعادة المحاولة
-                </button>
-              </div>
-            </div>
-          ) : filtered.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '30px 10px', color: COLORS.muted, fontWeight: 700 }}>
-              لا توجد منشآت مطابقة
-            </div>
-          ) : (
-            <>
-              {filtered.slice(0, limit).map((r) => <EstablishmentCard key={r.facility_code} e={r} />)}
-              {filtered.length > limit && (
-                <button
-                  type="button"
-                  onClick={() => setLimit((l) => l + PAGE)}
-                  style={{
-                    padding: '12px', borderRadius: '12px', border: `1px solid ${COLORS.border}`,
-                    backgroundColor: COLORS.surface, color: COLORS.primary, fontWeight: 800, cursor: 'pointer',
-                  }}
-                >
-                  عرض المزيد ({filtered.length - limit} متبقية)
-                </button>
-              )}
-            </>
-          )}
+        <div className="est-views" role="group" aria-label="حجم العرض">
+          {VIEWS.map((v) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={view === v}
+              className={view === v ? 'on' : ''}
+              onClick={() => setView(v)}
+              title={v === 'list' ? 'قائمة مختصرة' : v === 'small' ? 'كروت صغيرة' : 'كروت كبيرة بكل التفاصيل'}
+            >
+              <ViewIcon mode={v} />
+            </button>
+          ))}
         </div>
       </div>
+
+      <FilterBar
+        dropdowns={[
+          {
+            key: 'center',
+            label: 'المدينة',
+            value: center,
+            onChange: setCenter,
+            defaultValue: 'الكل',
+            options: [
+              { value: 'الكل', label: 'كل المدن', badge: byStatus.length },
+              ...centers.map(([c, n]) => ({ value: c, label: c, badge: n })),
+            ],
+          },
+        ]}
+        search={{ value: search, onChange: setSearch, placeholder: 'ابحث بالاسم، الكود، العنوان أو التليفون...' }}
+        segmented={{
+          label: 'الحالة',
+          value: status,
+          onChange: (v) => setStatus(v as StatusKey),
+          defaultValue: 'active',
+          options: [
+            { value: 'active', label: 'نشطة', badge: statusCounts.active },
+            { value: 'closed', label: 'مغلقة', badge: statusCounts.closed },
+            { value: 'all', label: 'الكل', badge: statusCounts.all },
+          ],
+        }}
+        resultText={loading ? 'جارٍ التحميل…' : `عرض ${filtered.length} من ${rows.length} منشأة`}
+      />
+
+      <div style={{ marginTop: '10px' }}>
+        {loading ? (
+          <SkeletonList count={6}><FacilityCardSkeleton /></SkeletonList>
+        ) : error ? (
+          <div style={{ textAlign: 'center', padding: '30px 10px', color: COLORS.red, fontWeight: 700 }}>
+            {error}
+            <div>
+              <button type="button" onClick={load} className="est-more" style={{ marginTop: '12px', width: 'auto', padding: '10px 18px' }}>
+                إعادة المحاولة
+              </button>
+            </div>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '30px 10px', color: COLORS.muted, fontWeight: 700 }}>لا توجد منشآت مطابقة</div>
+        ) : (
+          <>
+            <div className={`est-grid est-${view}`}>
+              {filtered.slice(0, limit).map((r) => (
+                <EstablishmentCard key={r.facility_code} e={r} view={view} onCopy={copy} />
+              ))}
+            </div>
+            {filtered.length > limit && (
+              <button type="button" className="est-more" onClick={() => setLimit((l) => l + PAGE)}>
+                عرض المزيد ({filtered.length - limit} متبقية)
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {toast && <div className="est-toast" role="status">{toast}</div>}
     </div>
   );
+
+  return host ? createPortal(page, host) : page;
 };
 
-const Field: React.FC<{ label: string; value?: string; ltr?: boolean }> = ({ label, value, ltr }) =>
+const ViewIcon: React.FC<{ mode: ViewMode }> = ({ mode }) => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {mode === 'list' && (
+      <>
+        <path d="M8 6h13M8 12h13M8 18h13" />
+        <path d="M3 6h.01M3 12h.01M3 18h.01" />
+      </>
+    )}
+    {mode === 'small' && (
+      <>
+        <rect x="3" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" />
+        <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      </>
+    )}
+    {mode === 'large' && (
+      <>
+        <rect x="3" y="3" width="18" height="8" rx="2" />
+        <rect x="3" y="14" width="18" height="7" rx="2" />
+      </>
+    )}
+  </svg>
+);
+
+const CopyBtn: React.FC<{ text: string; what: string; onCopy: (t: string, w: string) => void; size?: number }> = ({ text, what, onCopy, size = 14 }) => (
+  <button
+    type="button"
+    className="est-copy"
+    onClick={(ev) => {
+      ev.stopPropagation();
+      onCopy(text, what);
+    }}
+    title={`نسخ ${what}`}
+    aria-label={`نسخ ${what}`}
+  >
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+    </svg>
+  </button>
+);
+
+const Field: React.FC<{ label: string; value?: string; ltr?: boolean; onCopy: (t: string, w: string) => void }> = ({ label, value, ltr, onCopy }) =>
   value ? (
-    <div style={{ display: 'flex', gap: '6px', fontSize: '12.5px', minWidth: 0 }}>
-      <span style={{ color: COLORS.muted, fontWeight: 600, flexShrink: 0 }}>{label}:</span>
-      <span className="text-wrap" style={{ color: COLORS.ink, fontWeight: 700, direction: ltr ? 'ltr' : undefined }}>{value}</span>
+    <div className="est-field">
+      <span className="est-field-label">{label}:</span>
+      <span className="est-sel text-wrap" style={{ direction: ltr ? 'ltr' : undefined, flex: 1 }}>{value}</span>
+      <CopyBtn text={value} what={label} onCopy={onCopy} size={13} />
     </div>
   ) : null;
 
-const EstablishmentCard: React.FC<{ e: Establishment }> = ({ e }) => (
-  <div
-    style={{
-      backgroundColor: COLORS.surface, borderRadius: '14px', padding: '12px 14px', border: `1px solid ${COLORS.border}`,
-      display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0, opacity: e.is_active ? 1 : 0.75,
-    }}
-  >
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', minWidth: 0 }}>
-      <span
-        style={{
-          fontSize: '12px', fontWeight: 800, fontFamily: 'monospace, sans-serif', backgroundColor: '#F1F5F9',
-          color: '#334155', padding: '2px 8px', borderRadius: '6px', border: '1px solid #E2E8F0', flexShrink: 0,
-        }}
-      >
-        {e.facility_code}
-      </span>
-      <span
-        className="text-ellipsis"
-        style={{
-          fontSize: '11px', fontWeight: 700, padding: '3px 9px', borderRadius: '20px', minWidth: 0,
-          backgroundColor: e.is_active ? COLORS.greenSoft : COLORS.redSoft,
-          color: e.is_active ? COLORS.green : COLORS.red,
-        }}
-        title={e.status_raw}
-      >
-        {e.is_active ? 'نشطة' : `مغلقة${e.status_raw ? ` — ${e.status_raw}` : ''}`}
-      </span>
+function cardText(e: Establishment): string {
+  return [
+    `${e.name} (${e.facility_code})`,
+    `المدينة: ${e.center}`,
+    e.address && `العنوان: ${e.address}`,
+    e.activity_type && `النشاط: ${e.activity_type}`,
+    e.owner && `المالك: ${e.owner}`,
+    e.phone && `التليفون: ${e.phone}`,
+    e.last_visit_date && `آخر زيارة: ${e.last_visit_date}`,
+    e.water_qty && `كمية المياه: ${e.water_qty}`,
+    e.treatment_unit && `وحدة المعالجة: ${e.treatment_unit}`,
+    `الحالة: ${e.is_active ? 'نشطة' : `مغلقة${e.status_raw ? ` — ${e.status_raw}` : ''}`}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+const EstablishmentCard: React.FC<{ e: Establishment; view: ViewMode; onCopy: (t: string, w: string) => void }> = ({ e, view, onCopy }) => {
+  const statusPill = (
+    <span
+      className="text-ellipsis"
+      style={{
+        fontSize: '11px', fontWeight: 700, padding: '3px 9px', borderRadius: '20px', minWidth: 0, flexShrink: 1,
+        backgroundColor: e.is_active ? COLORS.greenSoft : COLORS.redSoft, color: e.is_active ? COLORS.green : COLORS.red,
+      }}
+      title={e.status_raw}
+    >
+      {e.is_active ? 'نشطة' : `مغلقة${e.status_raw ? ` — ${e.status_raw}` : ''}`}
+    </span>
+  );
+  const code = (
+    <span className="est-code est-sel">{e.facility_code}</span>
+  );
+
+  if (view === 'list') {
+    return (
+      <div className="est-card est-row" style={{ opacity: e.is_active ? 1 : 0.75 }}>
+        {code}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="est-sel text-ellipsis" style={{ fontSize: '14px', fontWeight: 800, color: COLORS.ink }} title={e.name}>{e.name}</div>
+          <div className="est-sel text-ellipsis" style={{ fontSize: '12px', color: COLORS.muted }}>
+            {e.center}{e.address ? ` • ${e.address}` : ''}
+          </div>
+        </div>
+        {!e.is_active && statusPill}
+        <CopyBtn text={cardText(e)} what="بيانات المنشأة" onCopy={onCopy} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="est-card" style={{ opacity: e.is_active ? 1 : 0.75 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+        {code}
+        <CopyBtn text={e.facility_code} what="الكود" onCopy={onCopy} size={13} />
+        <span style={{ flex: 1 }} />
+        {statusPill}
+        <button type="button" className="est-copy-all" onClick={() => onCopy(cardText(e), 'بيانات المنشأة')} title="نسخ كل بيانات الكارت">
+          نسخ الكل
+        </button>
+      </div>
+      <div className="est-sel text-wrap" style={{ fontSize: view === 'large' ? '16px' : '15px', fontWeight: 800, color: COLORS.ink, lineHeight: 1.4 }}>
+        {e.name}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '5px', fontSize: '12.5px', color: COLORS.muted, minWidth: 0 }}>
+        <MapPinIcon size={14} color={COLORS.primary} style={{ flexShrink: 0, marginTop: '2px' }} />
+        <span className="est-sel text-wrap" style={{ minWidth: 0, flex: 1 }}>
+          <b style={{ color: COLORS.ink }}>{e.center}</b>
+          {e.address ? ` • ${e.address}` : ''}
+        </span>
+        {e.address && <CopyBtn text={e.address} what="العنوان" onCopy={onCopy} size={13} />}
+      </div>
+      {view === 'small' ? (
+        <>
+          <Field label="النشاط" value={e.activity_type} onCopy={onCopy} />
+          <Field label="التليفون" value={e.phone} ltr onCopy={onCopy} />
+        </>
+      ) : (
+        <>
+          <Field label="النشاط" value={e.activity_type} onCopy={onCopy} />
+          <Field label="المالك" value={e.owner} onCopy={onCopy} />
+          <Field label="التليفون" value={e.phone} ltr onCopy={onCopy} />
+          <Field label="آخر زيارة" value={e.last_visit_date} ltr onCopy={onCopy} />
+          <Field label="كمية المياه" value={e.water_qty} onCopy={onCopy} />
+          <Field label="وحدة المعالجة" value={e.treatment_unit} onCopy={onCopy} />
+        </>
+      )}
     </div>
-    <div className="text-wrap" style={{ fontSize: '15px', fontWeight: 800, color: COLORS.ink, lineHeight: 1.4 }}>{e.name}</div>
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '5px', fontSize: '12.5px', color: COLORS.muted, minWidth: 0 }}>
-      <MapPinIcon size={14} color={COLORS.primary} style={{ flexShrink: 0, marginTop: '2px' }} />
-      <span className="text-wrap" style={{ minWidth: 0 }}>
-        <b style={{ color: COLORS.ink }}>{e.center}</b>
-        {e.address ? ` • ${e.address}` : ''}
-      </span>
-    </div>
-    <Field label="النشاط" value={e.activity_type} />
-    <Field label="المالك" value={e.owner} />
-    <Field label="التليفون" value={e.phone} ltr />
-    <Field label="آخر زيارة" value={e.last_visit_date} ltr />
-    <Field label="كمية المياه" value={e.water_qty} />
-    <Field label="وحدة المعالجة" value={e.treatment_unit} />
-  </div>
-);
+  );
+};

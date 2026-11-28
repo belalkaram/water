@@ -609,6 +609,17 @@ app.post(
         });
       }
 
+      // The registry is the source of truth for a facility's city: an uploaded file may say «قويسنا»
+      // for a «قويسنا المنطقة الصناعية» facility, which would hide it from that city's filter.
+      const codes = [...new Set(parsed.map((p) => p.facility_code).filter(Boolean))];
+      if (codes.length) {
+        const known = await queryAll(
+          `SELECT facility_code, center FROM establishments WHERE facility_code IN (${codes.map(() => '?').join(',')})`, codes
+        );
+        const centerByCode = new Map(known.map((k) => [k.facility_code, k.center]));
+        parsed.forEach((p) => { if (centerByCode.has(p.facility_code)) p.center = centerByCode.get(p.facility_code); });
+      }
+
       const planId = uuidv4();
       const now = new Date().toISOString();
       // Give uploaded plans a calendar month (when the label names one that is still free) so carry-over works for them
