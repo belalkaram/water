@@ -212,6 +212,13 @@ export const api = {
   getEstablishments: (code: string): Promise<{ establishments: Establishment[] }> =>
     request('/api/establishments', { method: 'GET' }, code),
 
+  /** Download link: the whole establishments registry as a styled Excel sheet */
+  establishmentsExportUrl: () => {
+    const base = getServerUrl();
+    const path = `/api/establishments/export.xlsx?token=${encodeURIComponent(sessionToken || '')}`;
+    return base ? `${base}${path}` : path;
+  },
+
   nextSerial: (code: string, planId: string): Promise<{ next_serial: number }> =>
     request(`/api/plans/${planId}/next-serial`, { method: 'GET' }, code),
 

@@ -6,6 +6,7 @@ const xlsx = require('xlsx');
 const { v4: uuidv4 } = require('uuid');
 const { initDb, queryAll, run } = require('../db');
 const { detectActivityType } = require('../utils/centerParser');
+const { normalizePhone } = require('../utils/phone');
 const { generateMonthlyPlan } = require('../utils/monthlyPlan');
 const C = require('../constants');
 
@@ -87,7 +88,7 @@ function readFile(file, issues) {
       const actText = ix.act >= 0 ? norm(row[ix.act]) : '';
       out.push({
         code, name, center, status, closed: isClosed(status),
-        address: norm(row[ix.addr]), owner: norm(row[ix.owner]), phone: norm(row[ix.phone]),
+        address: norm(row[ix.addr]), owner: norm(row[ix.owner]), phone: norm(normalizePhone(row[ix.phone])),
         activity: detectActivityType(`${name} ${actText}`) || 'أخرى',
         last: parseDate(row[ix.last], issues, ctx),
         water: norm(row[ix.water]), unit: norm(row[ix.unit]), file, sheet: sn,

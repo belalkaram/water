@@ -230,4 +230,96 @@ function reportFileName(report, ext) {
   return `${base}.${ext}`;
 }
 
-module.exports = { buildPlanReport, buildPlanWorkbook, reportFileName, STATUS_STYLE, COLUMNS };
+// ─── Full establishments registry (the «عرض المنشآت» page) ─────────────────────
+const EST_COLUMNS = [
+  { key: 'n', header: 'م', width: 7 },
+  { key: 'facility_code', header: 'الكود', width: 12 },
+  { key: 'name', header: 'اسم المنشأة', width: 40 },
+  { key: 'center', header: 'المدينة', width: 22 },
+  { key: 'address', header: 'العنوان', width: 46 },
+  { key: 'activity_type', header: 'النشاط', width: 14 },
+  { key: 'owner', header: 'صاحب المنشأة', width: 26 },
+  { key: 'phone', header: 'التليفون', width: 18 },
+  { key: 'last_visit', header: 'تاريخ آخر مرور', width: 16 },
+  { key: 'water_qty', header: 'كمية المياه (م3/شهر)', width: 16 },
+  { key: 'treatment_unit', header: 'وحدة المعالجة', width: 16 },
+  { key: 'state', header: 'الحالة', width: 26 },
+];
+const EST_CENTERED = ['n', 'facility_code', 'center', 'activity_type', 'phone', 'last_visit', 'water_qty', 'treatment_unit', 'state'];
+
+/** Every establishment the user may see (rows already ordered), as one styled sheet. */
+async function buildEstablishmentsWorkbook(rows, scopeLabel) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = COMPANY;
+  wb.created = new Date();
+  wb.views = [{ rtl: true }];
+  const ws = wb.addWorksheet('المنشآت', {
+    views: [{ rightToLeft: true, state: 'frozen', ySplit: 4, xSplit: 3, showGridLines: false }],
+    pageSetup: {
+      paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+      horizontalCentered: true, margins: { left: 0.3, right: 0.3, top: 0.5, bottom: 0.5, header: 0.25, footer: 0.25 },
+      printTitlesRow: '4:4',
+    },
+    headerFooter: { oddFooter: '&Cصفحة &P من &N' },
+  });
+  ws.columns = EST_COLUMNS.map((c) => ({ key: c.key, width: c.width }));
+  const lastCol = EST_COLUMNS.length;
+  const active = rows.filter((r) => Number(r.is_active) === 1).length;
+
+  ws.mergeCells(1, 1, 1, lastCol);
+  const t = ws.getCell(1, 1);
+  t.value = `${COMPANY} — سجل المنشآت`;
+  t.font = { name: FONT, size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
+  t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(BRAND_DARK) } };
+  t.alignment = { horizontal: 'center', vertical: 'middle', readingOrder: 'rtl' };
+  ws.getRow(1).height = 36;
+
+  ws.mergeCells(2, 1, 2, lastCol);
+  const info = ws.getCell(2, 1);
+  info.value = `المدن: ${scopeLabel}     •     الإجمالي: ${rows.length}  (نشطة ${active} / مغلقة ${rows.length - active})     •     تاريخ التصدير: ${exportStamp()}`;
+  info.font = { name: FONT, size: 11, color: { argb: 'FF334155' } };
+  info.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF3F9' } };
+  info.alignment = { horizontal: 'center', vertical: 'middle', readingOrder: 'rtl' };
+  ws.getRow(2).height = 24;
+  ws.getRow(3).height = 6;
+
+  const header = ws.getRow(4);
+  EST_COLUMNS.forEach((c, i) => {
+    const cell = header.getCell(i + 1);
+    cell.value = c.header;
+    cell.font = { name: FONT, size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(BRAND) } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true, readingOrder: 'rtl' };
+    cell.border = ALL_BORDERS;
+  });
+  header.height = 32;
+
+  rows.forEach((r, idx) => {
+    const isActive = Number(r.is_active) === 1;
+    const row = ws.addRow({
+      n: idx + 1, facility_code: r.facility_code, name: r.name, center: r.center, address: r.address || '',
+      activity_type: r.activity_type || '', owner: r.owner || '', phone: r.phone || '',
+      last_visit: formatDate(r.last_visit_date) || 'لم تُعاين', water_qty: r.water_qty || '', treatment_unit: r.treatment_unit || '',
+      state: isActive ? 'نشطة' : `مغلقة${r.status_raw ? ` — ${r.status_raw}` : ''}`,
+    });
+    const zebra = idx % 2 === 1 ? 'FFF7FAFC' : 'FFFFFFFF';
+    row.eachCell({ includeEmpty: true }, (cell, col) => {
+      const key = EST_COLUMNS[col - 1].key;
+      cell.font = { name: FONT, size: 11, color: { argb: 'FF0F293A' }, bold: key === 'name' };
+      cell.alignment = { horizontal: EST_CENTERED.includes(key) ? 'center' : 'right', vertical: 'middle', wrapText: true, readingOrder: 'rtl' };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: zebra } };
+      cell.border = ALL_BORDERS;
+    });
+    const sc = row.getCell(lastCol);
+    const style = isActive ? STATUS_STYLE.done : STATUS_STYLE.failed;
+    sc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(style.fill) } };
+    sc.font = { name: FONT, size: 11, bold: true, color: { argb: argb(style.font) } };
+    const lines = Math.max(1, Math.ceil(String(r.name).length / 36), Math.ceil(String(r.address || '').length / 42));
+    row.height = Math.max(22, 16 * lines + 8);
+  });
+
+  if (rows.length) ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4 + rows.length, column: lastCol } };
+  return wb.xlsx.writeBuffer();
+}
+
+module.exports = { buildPlanReport, buildPlanWorkbook, buildEstablishmentsWorkbook, reportFileName, STATUS_STYLE, COLUMNS };

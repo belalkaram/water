@@ -8,13 +8,14 @@ const { initDb, queryAll, queryOne, run, transaction } = require('./db');
 const { parseExcelRows, ACTIVITY_TYPES } = require('./utils/centerParser');
 const { parsePdfBuffer } = require('./utils/pdfParser');
 const { parsePlanFile } = require('./utils/universalParser');
+const { normalizePhone } = require('./utils/phone');
 const { normalizePayload, hydrateInspection } = require('./utils/inspectionPayload');
 const C = require('./constants');
 const {
   previewMonthlyPlan, generateMonthlyPlan, carryOverUnfinished, ensureCurrentMonth, currentYm, monthLabel, ymFromLabel,
   runDailyPlanJob,
 } = require('./utils/monthlyPlan');
-const { buildPlanReport, buildPlanWorkbook, reportFileName } = require('./utils/planExport');
+const { buildPlanReport, buildPlanWorkbook, buildEstablishmentsWorkbook, reportFileName } = require('./utils/planExport');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -1096,19 +1097,42 @@ app.get('/api/activity-types', authMiddleware, (req, res) => {
   res.json({ activity_types: ACTIVITY_TYPES });
 });
 
-// View-only list of the permanent establishments registry (including ones employees added).
+// Permanent establishments registry (including ones employees added).
 // Workers only see the centers assigned to them, same as the plans.
+async function loadEstablishments(user) {
+  const scope = centerScope(user);
+  const rows = await queryAll(
+    `SELECT facility_code, name, address, center, activity_type, owner, phone, water_qty, treatment_unit,
+            status_raw, is_active, last_visit_date
+     FROM establishments WHERE 1 = 1${scope.sql}`,
+    scope.params
+  );
+  // city, then natural code order (Q2 before Q10)
+  return rows.sort((a, b) => a.center.localeCompare(b.center, 'ar')
+    || String(a.facility_code).localeCompare(String(b.facility_code), 'en', { numeric: true }));
+}
+
+// View-only list for the «عرض المنشآت» page
 app.get('/api/establishments', authMiddleware, async (req, res, next) => {
   try {
-    const scope = centerScope(req.user);
-    const rows = await queryAll(
-      `SELECT facility_code, name, address, center, activity_type, owner, phone, water_qty, treatment_unit,
-              status_raw, is_active, last_visit_date
-       FROM establishments WHERE 1 = 1${scope.sql}
-       ORDER BY center, COALESCE(serial_no, 0), facility_code`,
-      scope.params
-    );
+    const rows = await loadEstablishments(req.user);
     res.json({ establishments: rows.map((r) => ({ ...r, is_active: Number(r.is_active) === 1 })) });
+  } catch (err) { next(err); }
+});
+
+// The whole registry as one styled Excel sheet (active + closed, with a status column)
+app.get('/api/establishments/export.xlsx', authFromQuery, authMiddleware, async (req, res, next) => {
+  try {
+    const rows = await loadEstablishments(req.user);
+    const centers = userCenters(req.user);
+    const buf = await buildEstablishmentsWorkbook(rows, centers === null ? 'كل المدن' : centers.join('، ') || '—');
+    const day = new Date(Date.now() + 2 * 3600 * 1000).toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="establishments.xlsx"; filename*=UTF-8''${encodeURIComponent(`سجل-المنشآت-${day}.xlsx`)}`
+    );
+    res.send(Buffer.from(buf));
   } catch (err) { next(err); }
 });
 
@@ -1125,7 +1149,7 @@ app.post('/api/plans/:planId/facilities', authMiddleware, async (req, res, next)
     const serial = Number(req.body.serial_no);
     const plan_notes = txt(req.body.plan_notes);
     const owner = txt(req.body.owner, 150);
-    const phone = txt(req.body.phone, 60);
+    const phone = normalizePhone(txt(req.body.phone, 60));
     const water_qty = txt(req.body.water_qty, 60);
     const treatment_unit = txt(req.body.treatment_unit, 150);
     const last_visit_date = txt(req.body.last_visit_date, 10);

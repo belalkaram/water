@@ -530,3 +530,105 @@ body {
   .est-page.screen { padding-top: 0 !important; }
   .est-head { padding-top: 20px; }
 }
+
+/* establishments page: export button + spreadsheet-like table view */
+.est-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 10px;
+}
+.est-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid #BFE3CB;
+  background: #E8F5EC;
+  color: #1E7B34;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.est-xls {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #fff;
+  background: #1E7B34;
+  border-radius: 5px;
+  padding: 2px 5px;
+  direction: ltr;
+  flex-shrink: 0;
+}
+.est-table-wrap {
+  overflow: auto;
+  max-height: calc(100dvh - 230px);
+  min-height: 300px;
+  border: 1px solid #C9D6E2;
+  border-radius: 12px;
+  background: #fff;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+}
+.est-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12.5px;
+  min-width: 100%;
+  width: max-content;
+}
+.est-table th,
+.est-table td {
+  border-bottom: 1px solid #E2E8F0;
+  border-left: 1px solid #E2E8F0;
+  padding: 7px 10px;
+  text-align: right;
+  vertical-align: top;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 260px;
+}
+.est-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #006B9F;
+  color: #fff;
+  font-weight: 800;
+  font-size: 12px;
+  white-space: nowrap;
+  text-align: center;
+}
+.est-table tbody tr:nth-child(even) td { background: #F7FAFC; }
+.est-table tbody tr:nth-child(odd) td { background: #fff; }
+.est-table tbody tr:hover td { background: #EAF3F9; }
+.est-table .c-n { color: #94A3B8; text-align: center; font-size: 11px; width: 40px; }
+.est-table .c-code {
+  font-family: monospace, sans-serif;
+  font-weight: 800;
+  direction: ltr;
+  text-align: center;
+  white-space: nowrap;
+}
+.est-table .c-name { font-weight: 800; color: #0F293A; min-width: 170px; }
+.est-table .c-wide { min-width: 220px; max-width: 320px; }
+.est-table .c-mid { min-width: 130px; }
+.est-table .c-ltr { direction: ltr; text-align: center; white-space: nowrap; }
+.est-table .c-status { white-space: nowrap; font-weight: 700; color: #1E7B34; }
+.est-table tr.closed .c-status { color: #B91C1C; }
+.est-table tr.closed td:not(.c-status) { color: #64748B; }
+.est-table .c-copy { width: 36px; padding: 4px; text-align: center; }
+/* code + name stay visible while scrolling sideways (RTL: they are on the right) */
+.est-table .c-n { position: sticky; right: 0; z-index: 1; }
+.est-table .c-code { position: sticky; right: 40px; z-index: 1; }
+.est-table thead .c-n,
+.est-table thead .c-code { z-index: 4; }
+.est-table tbody .c-code { box-shadow: -1px 0 0 #C9D6E2; }
+@media (max-width: 640px) {
+  .est-table-wrap { max-height: calc(100dvh - 300px); }
+  .est-table .c-name { min-width: 140px; }
+}

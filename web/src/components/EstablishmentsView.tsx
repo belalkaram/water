@@ -17,8 +17,9 @@ interface Props {
 }
 
 const PAGE = 60;
+const TABLE_PAGE = 200;
 type StatusKey = 'active' | 'closed' | 'all';
-const VIEWS = ['list', 'small', 'large'] as const;
+const VIEWS = ['table', 'list', 'small', 'large'] as const;
 type ViewMode = (typeof VIEWS)[number];
 
 /**
@@ -54,7 +55,6 @@ export const EstablishmentsView: React.FC<Props> = ({ isOpen, onClose, userCode,
   useEffect(() => {
     if (!isOpen) return;
     setCenter(initialCenter && initialCenter !== 'الكل' ? initialCenter : 'الكل');
-    setLimit(PAGE);
     load();
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -62,7 +62,8 @@ export const EstablishmentsView: React.FC<Props> = ({ isOpen, onClose, userCode,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  useEffect(() => setLimit(PAGE), [center, status, search]);
+  const step = view === 'table' ? TABLE_PAGE : PAGE;
+  useEffect(() => setLimit(step), [center, status, search, step]);
 
   useEffect(() => {
     if (!toast) return;
@@ -146,12 +147,24 @@ export const EstablishmentsView: React.FC<Props> = ({ isOpen, onClose, userCode,
               aria-pressed={view === v}
               className={view === v ? 'on' : ''}
               onClick={() => setView(v)}
-              title={v === 'list' ? 'قائمة مختصرة' : v === 'small' ? 'كروت صغيرة' : 'كروت كبيرة بكل التفاصيل'}
+              title={VIEW_TITLES[v]}
             >
               <ViewIcon mode={v} />
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="est-actions">
+        <button
+          type="button"
+          className="est-export"
+          onClick={() => window.open(api.establishmentsExportUrl(), '_blank')}
+          title="تحميل كل المنشآت (النشطة والمغلقة) في شيت Excel منسّق"
+        >
+          <span className="est-xls">XLS</span>
+          <span className="text-ellipsis">تصدير كل المنشآت Excel</span>
+        </button>
       </div>
 
       <FilterBar
@@ -199,13 +212,17 @@ export const EstablishmentsView: React.FC<Props> = ({ isOpen, onClose, userCode,
           <div style={{ textAlign: 'center', padding: '30px 10px', color: COLORS.muted, fontWeight: 700 }}>لا توجد منشآت مطابقة</div>
         ) : (
           <>
-            <div className={`est-grid est-${view}`}>
-              {filtered.slice(0, limit).map((r) => (
-                <EstablishmentCard key={r.facility_code} e={r} view={view} onCopy={copy} />
-              ))}
-            </div>
+            {view === 'table' ? (
+              <EstablishmentsTable rows={filtered.slice(0, limit)} onCopy={copy} />
+            ) : (
+              <div className={`est-grid est-${view}`}>
+                {filtered.slice(0, limit).map((r) => (
+                  <EstablishmentCard key={r.facility_code} e={r} view={view} onCopy={copy} />
+                ))}
+              </div>
+            )}
             {filtered.length > limit && (
-              <button type="button" className="est-more" onClick={() => setLimit((l) => l + PAGE)}>
+              <button type="button" className="est-more" onClick={() => setLimit((l) => l + step)}>
                 عرض المزيد ({filtered.length - limit} متبقية)
               </button>
             )}
@@ -220,8 +237,21 @@ export const EstablishmentsView: React.FC<Props> = ({ isOpen, onClose, userCode,
   return host ? createPortal(page, host) : page;
 };
 
+const VIEW_TITLES: Record<ViewMode, string> = {
+  table: 'جدول (زي الإكسل) بكل البيانات',
+  list: 'قائمة مختصرة',
+  small: 'كروت صغيرة',
+  large: 'كروت كبيرة بكل التفاصيل',
+};
+
 const ViewIcon: React.FC<{ mode: ViewMode }> = ({ mode }) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {mode === 'table' && (
+      <>
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
+      </>
+    )}
     {mode === 'list' && (
       <>
         <path d="M8 6h13M8 12h13M8 18h13" />
@@ -362,3 +392,47 @@ const EstablishmentCard: React.FC<{ e: Establishment; view: ViewMode; onCopy: (t
     </div>
   );
 };
+
+const TABLE_COLUMNS: { key: string; label: string; get: (e: Establishment) => string; cls?: string }[] = [
+  { key: 'code', label: 'الكود', get: (e) => e.facility_code, cls: 'c-code' },
+  { key: 'name', label: 'اسم المنشأة', get: (e) => e.name, cls: 'c-name' },
+  { key: 'center', label: 'المدينة', get: (e) => e.center },
+  { key: 'address', label: 'العنوان', get: (e) => e.address, cls: 'c-wide' },
+  { key: 'activity', label: 'النشاط', get: (e) => e.activity_type },
+  { key: 'owner', label: 'صاحب المنشأة', get: (e) => e.owner, cls: 'c-mid' },
+  { key: 'phone', label: 'التليفون', get: (e) => e.phone, cls: 'c-ltr' },
+  { key: 'last', label: 'آخر مرور', get: (e) => e.last_visit_date, cls: 'c-ltr' },
+  { key: 'water', label: 'كمية المياه', get: (e) => e.water_qty },
+  { key: 'unit', label: 'وحدة المعالجة', get: (e) => e.treatment_unit },
+  { key: 'status', label: 'الحالة', get: (e) => (e.is_active ? 'نشطة' : `مغلقة${e.status_raw ? ` — ${e.status_raw}` : ''}`), cls: 'c-status' },
+];
+
+/** Spreadsheet-like view: every column, sticky header and code/name columns, selectable cells. */
+const EstablishmentsTable: React.FC<{ rows: Establishment[]; onCopy: (t: string, w: string) => void }> = ({ rows, onCopy }) => (
+  <div className="est-table-wrap">
+    <table className="est-table">
+      <thead>
+        <tr>
+          <th className="c-n">م</th>
+          {TABLE_COLUMNS.map((c) => (
+            <th key={c.key} className={c.cls}>{c.label}</th>
+          ))}
+          <th className="c-copy" aria-label="نسخ" />
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((e, i) => (
+          <tr key={e.facility_code} className={e.is_active ? '' : 'closed'}>
+            <td className="c-n">{i + 1}</td>
+            {TABLE_COLUMNS.map((c) => (
+              <td key={c.key} className={`est-sel ${c.cls || ''}`}>{c.get(e)}</td>
+            ))}
+            <td className="c-copy">
+              <CopyBtn text={cardText(e)} what="بيانات المنشأة" onCopy={onCopy} size={13} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
