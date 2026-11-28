@@ -325,20 +325,38 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFacility?.id, inspectingFacility?.id]);
 
-  // URL → state: back/forward buttons, a refresh, or a shared link
+  // URL → state: back/forward buttons, a refresh, or a shared link.
+  // Acts only when the ADDRESS changes (or, for a link opened before the plan loaded, once the plan arrives) —
+  // never because the sheet/form state changed. Reacting to state here made it fight the effect above in an
+  // endless loop after saving an inspection (lag, then a blank white page).
+  const lastRouteKey = useRef('');
+  const pendingLink = useRef('');
   useEffect(() => {
     if (!user) return;
-    if (route.view !== 'facility' && activeFacility) setActiveFacility(null);
-    if (route.view !== 'inspect' && inspectingFacility) setInspectingFacility(null);
-    if (!route.facilityId) return;
-    const f = facilities.find((x) => x.id === route.facilityId);
-    if (route.view === 'facility' && activeFacility?.id !== route.facilityId) {
-      if (f) setActiveFacility(f);
-      else if (loadedOnce) handleOpenFacilityById(route.facilityId);
+    const key = `${route.tab}:${route.view}:${route.facilityId || ''}`;
+    if (key !== lastRouteKey.current) {
+      lastRouteKey.current = key;
+      pendingLink.current = route.facilityId ? key : '';
+      if (route.view !== 'facility' && activeFacility) setActiveFacility(null);
+      if (route.view !== 'inspect' && inspectingFacility) setInspectingFacility(null);
     }
-    if (route.view === 'inspect' && inspectingFacility?.id !== route.facilityId && f) setInspectingFacility(f);
+    if (pendingLink.current !== key || !route.facilityId) return;
+    const open = route.view === 'inspect' ? inspectingFacility : activeFacility;
+    if (open?.id === route.facilityId) {
+      pendingLink.current = '';
+      return;
+    }
+    const f = facilities.find((x) => x.id === route.facilityId);
+    if (f) {
+      pendingLink.current = '';
+      if (route.view === 'inspect') setInspectingFacility(f);
+      else setActiveFacility(f);
+    } else if (loadedOnce && route.view === 'facility') {
+      pendingLink.current = '';
+      handleOpenFacilityById(route.facilityId);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route.view, route.facilityId, facilities, loadedOnce, user]);
+  }, [route.tab, route.view, route.facilityId, facilities, loadedOnce, user]);
 
   // signed out → /login (remember where to go back); signed in → never stay on /login; /admin is for admins only
   useEffect(() => {
