@@ -17,14 +17,16 @@ import {
 } from '../constants';
 import { Chip } from './Chip';
 import { SignaturePad } from './SignaturePad';
-import { api } from '../api';
+import { api, isNetworkError } from '../api';
+import { enqueueInspection } from '../offline/sync';
 import { CheckCircleIcon, CrosshairIcon, PenToolIcon } from './Icons';
 import { DatePicker } from './pickers/DatePicker';
 
 interface Props {
   user: User;
   facility: Facility;
-  onDone: (updated: Facility) => void;
+  /** savedOffline = no internet: kept on the phone, uploaded automatically later */
+  onDone: (updated: Facility, savedOffline?: boolean) => void;
   onCancel: () => void;
 }
 
@@ -217,12 +219,34 @@ export const InspectionForm: React.FC<Props> = ({ user, facility, onDone, onCanc
         signature_base64: signature,
       };
 
-      const res = await api.completeFacility(user.code, facility.id, payload);
-      try {
-        localStorage.removeItem(draftKey(facility.id));
-      } catch {
-        // ignore
+      const clearDraft = () => {
+        try {
+          localStorage.removeItem(draftKey(facility.id));
+        } catch {
+          // ignore
+        }
+      };
+      // No internet: keep it on the phone; it is uploaded on its own when the internet comes back
+      const saveOffline = async () => {
+        const local = await enqueueInspection(user, facility, payload);
+        clearDraft();
+        onDone(local, true);
+      };
+      if (!navigator.onLine) {
+        await saveOffline();
+        return;
       }
+      let res;
+      try {
+        res = await api.completeFacility(user.code, facility.id, payload);
+      } catch (err) {
+        if (isNetworkError(err)) {
+          await saveOffline();
+          return;
+        }
+        throw err;
+      }
+      clearDraft();
       onDone(res.facility);
     } catch (err: any) {
       alert('تعذر الحفظ: ' + (err.message || 'حدث خطأ في الاتصال'));

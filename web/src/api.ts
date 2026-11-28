@@ -1,3 +1,4 @@
+import { saveAuthForWorker } from './offline/sync';
 import type { ActivityItem, Establishment, ConflictItem, Facility, MonthlyPlan, NewFacilityInput, PlanReport, PlanStats, User } from './types';
 
 // Trailing slashes are stripped: «https://host/» + «/api/...» would give «//api», which Vercel
@@ -35,8 +36,9 @@ let sessionToken: string | null = (() => {
 })();
 let onSessionEnded: (() => void) | null = null;
 
-export function setSessionToken(token: string | null): void {
+export function setSessionToken(token: string | null, userId?: string): void {
   sessionToken = token;
+  saveAuthForWorker(token, DEFAULT_API_URL || window.location.origin, userId);
   try {
     if (token) localStorage.setItem(SESSION_KEY, token);
     else localStorage.removeItem(SESSION_KEY);
@@ -45,6 +47,9 @@ export function setSessionToken(token: string | null): void {
   }
 }
 export const hasSession = () => !!sessionToken;
+export const getSessionToken = () => sessionToken;
+export const apiBaseForWorker = () => DEFAULT_API_URL || window.location.origin;
+export const isNetworkError = (err: unknown) => err instanceof ApiError && err.status === 0;
 /** App registers this to go back to the login screen when the server rejects the session */
 export function onSessionExpired(handler: (() => void) | null): void {
   onSessionEnded = handler;
@@ -67,7 +72,13 @@ async function request(path: string, options: RequestInit = {}, _userCode?: stri
   if (!(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
-  const res = await fetch(url, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(url, { ...options, headers });
+  } catch {
+    // no internet (or server unreachable): status 0 lets callers fall back to what is saved on the phone
+    throw new ApiError('لا يوجد اتصال بالإنترنت', 0);
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     sessionRejected(res.status);

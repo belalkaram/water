@@ -3,6 +3,7 @@ import { COLORS } from '../theme';
 import type { User } from '../types';
 import { api } from '../api';
 import { clearAllCookies, removeCookie } from '../utils/cookies';
+import { queueAll } from '../offline/store';
 import { Trash2Icon } from '../components/Icons';
 
 const LEGACY_REMEMBER_KEY = 'menoufia_remembered_code';
@@ -28,8 +29,12 @@ export const LoginScreen: React.FC<Props> = ({ onLogin, notice }) => {
     }
   }, []);
 
-  const handleClearCookies = () => {
-    if (window.confirm('هل تريد مسح جميع ملفات تعريف الارتباط (الكوكيز) وبيانات الدخول المحفوظة؟')) {
+  const handleClearCookies = async () => {
+    const waiting = (await queueAll().catch(() => [])).length;
+    const extra = waiting
+      ? `\n\nملحوظة: فيه ${waiting} معاينة محفوظة على التليفون لسه ما اترفعتش — دي مش هتتمسح، وهتترفع لما تدخل بنفس الكود وفيه نت.`
+      : '';
+    if (window.confirm('هل تريد مسح جميع ملفات تعريف الارتباط (الكوكيز) وبيانات الدخول المحفوظة؟' + extra)) {
       clearAllCookies();
       setCode('');
       setError('');

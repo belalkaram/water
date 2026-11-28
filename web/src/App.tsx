@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ActivityItem, Facility, MonthlyPlan, User } from './types';
-import { api, hasSession, onSessionExpired, setSessionToken } from './api';
+import { api, apiBaseForWorker, getSessionToken, hasSession, isNetworkError, onSessionExpired, setSessionToken } from './api';
+import {
+  cacheFacilities, cacheFeed, cachePlans, cachedFacilities, cachedFeed, cachedPlans, flushQueue, overlayPending,
+  refreshPending, saveAuthForWorker, subscribeSync, type SyncState,
+} from './offline/sync';
+import { SyncBar } from './components/SyncBar';
 import { TopBar } from './components/TopBar';
 import { BottomNav, type TabType } from './components/BottomNav';
 import { BottomSheet } from './components/BottomSheet';
@@ -41,6 +46,16 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [activeFacility, setActiveFacility] = useState<Facility | null>(null);
   const [inspectingFacility, setInspectingFacility] = useState<Facility | null>(null);
+  const [sync, setSync] = useState<SyncState>({ pending: 0, uploading: false, notices: [] });
+  const [toast, setToast] = useState('');
+  const [usingSaved, setUsingSaved] = useState(false);
+
+  useEffect(() => subscribeSync(setSync), []);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(''), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // Handle PWA BeforeInstallPrompt
   useEffect(() => {
@@ -85,7 +100,7 @@ export default function App() {
   };
 
   const handleLogin = (u: User, token: string) => {
-    setSessionToken(token);
+    setSessionToken(token, u.id);
     setSessionNotice('');
     setUser(u);
     try {
@@ -95,7 +110,20 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (user && sync.pending > 0) {
+      // try to upload first; whatever is left stays on the phone for the next login with the same code
+      if (navigator.onLine) await flushQueue(user, (ops) => api.syncBatch(user.code, ops));
+      const left = (await refreshPending(user.id)).filter((q) => q.user_id === user.id).length;
+      if (
+        left > 0 &&
+        !window.confirm(
+          `فيه ${left} معاينة محفوظة على التليفون لسه ما اترفعتش.\n` +
+            'لو خرجت هتفضل محفوظة، وهتترفع لما تدخل تاني بنفس الكود وفيه نت.\nتخرج دلوقتي؟'
+        )
+      )
+        return;
+    }
     api.logout();
     setSessionToken(null);
     clearSignedInState();
@@ -113,9 +141,13 @@ export default function App() {
   const refreshAll = useCallback(
     async (currentUser: User, planIdOverride?: string) => {
       setRefreshing(true);
+      // upload what was saved offline first — even with a session that ran out meanwhile (server allows it for uploads)
+      if (navigator.onLine) await flushQueue(currentUser, (ops) => api.syncBatch(currentUser.code, ops));
       try {
         const loadedPlans = (await api.getPlans(currentUser.code)).plans || [];
         setPlans(loadedPlans);
+        setUsingSaved(false);
+        cachePlans(currentUser.id, loadedPlans);
         const ym = new Date().toISOString().slice(0, 7);
         // keep the chosen plan only if it still exists (an admin may have deleted it)
         const exists = (id?: string) => !!id && loadedPlans.some((p) => p.id === id);
@@ -135,12 +167,31 @@ export default function App() {
             api.getFacilities(currentUser.code, targetPlanId),
             api.getFeed(currentUser.code, targetPlanId),
           ]);
-          setFacilities(facRes.facilities || []);
+          cacheFacilities(currentUser.id, targetPlanId, facRes.facilities || []);
+          cacheFeed(currentUser.id, targetPlanId, feedRes.feed || []);
+          setFacilities(await overlayPending(currentUser.id, targetPlanId, facRes.facilities || []));
           setFeed(feedRes.feed || []);
         }
       } catch (err: any) {
-        console.error('Refresh error:', err);
+        if (isNetworkError(err)) {
+          // offline: keep working from what was saved on this phone the last time there was internet
+          const savedPlans = (await cachedPlans(currentUser.id)) || [];
+          if (savedPlans.length) {
+            setUsingSaved(true);
+            setPlans(savedPlans);
+            const ym = new Date().toISOString().slice(0, 7);
+            const exists = (id?: string) => !!id && savedPlans.some((p) => p.id === id);
+            const pid =
+              [planIdOverride, selectedPlanId].find(exists) || savedPlans.find((p) => p.plan_month === ym)?.id || savedPlans[0]?.id || '';
+            setSelectedPlanId(pid);
+            setFacilities(pid ? await overlayPending(currentUser.id, pid, (await cachedFacilities(currentUser.id, pid)) || []) : []);
+            setFeed(pid ? (await cachedFeed(currentUser.id, pid)) || [] : []);
+          }
+        } else {
+          console.error('Refresh error:', err);
+        }
       } finally {
+        refreshPending(currentUser.id);
         setLoadedOnce(true);
         setRefreshing(false);
       }
@@ -158,9 +209,45 @@ export default function App() {
 
   useEffect(() => {
     if (user) {
+      saveAuthForWorker(getSessionToken(), apiBaseForWorker(), user.id);
       refreshAll(user);
     }
   }, [user]);
+
+  // Internet came back / the site came to the front / every 30 s: upload what was saved offline
+  useEffect(() => {
+    if (!user) return;
+    const tryUpload = async () => {
+      if (!navigator.onLine) return;
+      const n = await flushQueue(user, (ops) => api.syncBatch(user.code, ops));
+      if (n > 0) {
+        setToast(`تم رفع ${n} معاينة كانت محفوظة على التليفون`);
+        refreshAll(user, selectedPlanId);
+      }
+    };
+    const onOnline = () => {
+      tryUpload().then(() => refreshAll(user, selectedPlanId));
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') tryUpload();
+    };
+    const onWorkerMsg = (e: MessageEvent) => {
+      if (e.data?.type === 'sync-done') {
+        refreshPending(user.id);
+        if (e.data.uploaded > 0) refreshAll(user, selectedPlanId);
+      }
+    };
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
+    navigator.serviceWorker?.addEventListener('message', onWorkerMsg);
+    const timer = setInterval(tryUpload, 30000);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
+      navigator.serviceWorker?.removeEventListener('message', onWorkerMsg);
+      clearInterval(timer);
+    };
+  }, [user, selectedPlanId, refreshAll]);
 
   // Handle actions
   const handleReserve = async (f: Facility) => {
@@ -241,22 +328,18 @@ export default function App() {
         onInstall={handleInstallPwa}
       />
 
-      {/* Offline Alert Strip */}
-      {!isOnline && (
-        <div
-          style={{
-            backgroundColor: '#FEF3C7',
-            color: '#B45309',
-            fontSize: '12px',
-            fontWeight: '700',
-            padding: '6px 12px',
-            textAlign: 'center',
-            borderBottom: '1px solid #FDE68A',
-          }}
-        >
-          ⚠️ أنت الآن في وضع عدم الاتصال (Offline)
-        </div>
-      )}
+      {/* Offline + pending-upload strip */}
+      <SyncBar
+        online={isOnline}
+        usingSaved={usingSaved}
+        sync={sync}
+        onUploadNow={() =>
+          flushQueue(user, (ops) => api.syncBatch(user.code, ops)).then((n) => {
+            if (n > 0) setToast(`تم رفع ${n} معاينة`);
+            refreshAll(user, selectedPlanId);
+          })
+        }
+      />
 
       <div className="app-body">
       <main className="app-main">
@@ -344,13 +427,23 @@ export default function App() {
         <InspectionForm
           user={user}
           facility={inspectingFacility}
-          onDone={(updated) => {
+          onDone={(updated, savedOffline) => {
             setFacilities((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
             setInspectingFacility(null);
-            refreshAll(user, selectedPlanId);
+            if (savedOffline) {
+              setToast('مفيش نت — المعاينة اتحفظت على التليفون وهتترفع لوحدها أول ما النت يرجع');
+              refreshPending(user.id);
+            } else {
+              refreshAll(user, selectedPlanId);
+            }
           }}
           onCancel={() => setInspectingFacility(null)}
         />
+      )}
+      {toast && (
+        <div className="app-toast" role="status">
+          {toast}
+        </div>
       )}
     </div>
   );

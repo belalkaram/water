@@ -85,6 +85,10 @@ const upload = multer({
 // Session lifetime is a server-side policy only (never sent to or shown in the client).
 const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MINUTES || 60) * 60 * 1000;
 const SESSION_ENDED = { error: 'انتهت الجلسة، يرجى تسجيل الدخول مرة أخرى', code: 'SESSION_EXPIRED' };
+// Offline work: the session must not run out while the phone has no internet. Inspections saved offline are
+// uploaded with the same token even if it expired meanwhile, as long as it is not older than this grace period
+// and the user did not log out. Every other request keeps the normal limit (SESSION_TTL_MS).
+const OFFLINE_GRACE_MS = Number(process.env.OFFLINE_SYNC_GRACE_DAYS || 30) * 24 * 3600 * 1000;
 
 function readToken(req) {
   const h = String(req.headers.authorization || '');
@@ -100,6 +104,24 @@ async function authMiddleware(req, res, next) {
       `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token = ? AND s.expires_at > ? AND u.active = 1`,
       [token, new Date().toISOString()]
+    );
+    if (!user) return res.status(401).json(SESSION_ENDED);
+    req.user = user;
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Only for uploading work saved offline (/api/sync/batch): accepts a session that expired while offline.
+async function offlineSyncAuth(req, res, next) {
+  const token = readToken(req);
+  if (!token) return res.status(401).json(SESSION_ENDED);
+  try {
+    const user = await queryOne(
+      `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.token = ? AND s.expires_at > ? AND u.active = 1`,
+      [token, new Date(Date.now() - OFFLINE_GRACE_MS).toISOString()]
     );
     if (!user) return res.status(401).json(SESSION_ENDED);
     req.user = user;
@@ -393,7 +415,8 @@ app.post('/api/auth/login', async (req, res, next) => {
     if (!user) return res.status(401).json({ error: 'الكود غير مسجل. تواصل مع الأدمن للحصول على كودك.' });
     const now = new Date();
     const token = crypto.randomBytes(32).toString('hex');
-    await run('DELETE FROM sessions WHERE expires_at < ?', [now.toISOString()]);
+    // expired sessions are kept for the offline grace period (uploads of work done offline), then purged
+    await run('DELETE FROM sessions WHERE expires_at < ?', [new Date(now.getTime() - OFFLINE_GRACE_MS).toISOString()]);
     await run('INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)', [
       token, user.id, now.toISOString(), new Date(now.getTime() + SESSION_TTL_MS).toISOString(),
     ]);
@@ -1489,7 +1512,7 @@ app.get('/api/plans/:planId/stats', authMiddleware, async (req, res, next) => {
 });
 
 // Offline-First Batch Sync
-app.post('/api/sync/batch', authMiddleware, async (req, res, next) => {
+app.post('/api/sync/batch', offlineSyncAuth, async (req, res, next) => {
   try {
     const operations = Array.isArray(req.body.operations) ? req.body.operations : [];
     const results = [];
@@ -1543,6 +1566,16 @@ app.post('/api/sync/batch', authMiddleware, async (req, res, next) => {
         );
         if (!checked.ok) {
           results.push({ queue_id: op.queue_id, facility_name: facility.name, status: 'rejected', reason: checked.error });
+          continue;
+        }
+        // Offline rule: a colleague who already completed this facility while online wins — the offline
+        // inspection is cancelled (not stored). A repeat upload of the same inspection is recognised by client_id.
+        const already = await queryOne('SELECT id FROM inspections WHERE client_id = ?', [checked.value.client_id]);
+        if (!already && facility.status === 'completed') {
+          results.push({
+            queue_id: op.queue_id, facility_id: facility.id, facility_name: facility.name, status: 'cancelled',
+            reason: `سبقك ${facility.completed_by_name || 'زميل'} وسجّل معاينة المنشأة وهو متصل — تم إلغاء معاينتك`,
+          });
           continue;
         }
         const out = await recordInspection(facility, req.user, checked.value, op.created_at || now, { viaSync: true });

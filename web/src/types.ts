@@ -89,6 +89,8 @@ export interface Facility {
   inspection?: Inspection | null;
   /** بيانات السجل الدائم (نفس أعمدة شيت الإكسيل) */
   registry?: { owner: string; phone: string; water_qty: string; treatment_unit: string; status_raw: string } | null;
+  /** المعاينة اتحفظت على التليفون (من غير نت) ولسه ما اترفعتش */
+  pending_sync?: boolean;
 }
 
 export interface NewFacilityInput {

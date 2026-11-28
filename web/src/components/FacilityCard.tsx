@@ -13,12 +13,14 @@ export const FacilityCard: React.FC<Props> = ({ facility, onClick }) => {
   const isCompleted = facility.status === 'completed';
   const isReserved = facility.status === 'reserved';
 
-  const statusBg = isCompleted ? '#ECFDF5' : isReserved ? '#FFFBEB' : '#F0F9FF';
-  const statusBorder = isCompleted ? '#A7F3D0' : isReserved ? '#FDE68A' : '#BAE6FD';
-  const statusColor = isCompleted ? '#059669' : isReserved ? '#D97706' : '#0284C7';
-  const statusDot = isCompleted ? '#10B981' : isReserved ? '#F59E0B' : '#0EA5E9';
+  const statusBg = facility.pending_sync ? '#F5F3FF' : isCompleted ? '#ECFDF5' : isReserved ? '#FFFBEB' : '#F0F9FF';
+  const statusBorder = facility.pending_sync ? '#DDD6FE' : isCompleted ? '#A7F3D0' : isReserved ? '#FDE68A' : '#BAE6FD';
+  const statusColor = facility.pending_sync ? '#6D28D9' : isCompleted ? '#059669' : isReserved ? '#D97706' : '#0284C7';
+  const statusDot = facility.pending_sync ? '#8B5CF6' : isCompleted ? '#10B981' : isReserved ? '#F59E0B' : '#0EA5E9';
 
-  const statusText = isCompleted
+  const statusText = facility.pending_sync
+    ? 'محفوظة على التليفون — في انتظار الرفع'
+    : isCompleted
     ? `تمت المعاينة${facility.completed_by_name ? ` (${facility.completed_by_name})` : ''}`
     : isReserved
     ? `في الطريق${facility.reserved_by_name ? ` (${facility.reserved_by_name})` : ''}`
