@@ -27,24 +27,24 @@ html, body {
   direction: rtl;
   text-align: right;
   font-family: "Cairo", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans Arabic", sans-serif;
-  background-color: #0F293A; /* Desktop background backdrop */
+  background-color: #F4F8FB;
   color: #0F293A;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* The app always fills the whole screen (phone portrait or landscape, tablet, computer) —
+   never a fixed-width phone column in the middle. Wider screens get the side-rail layout below. */
 #root {
   width: 100%;
-  max-width: 500px;
   height: 100%;
   height: 100dvh;
-  margin: 0 auto;
+  margin: 0;
   display: flex;
   flex-direction: column;
   background-color: #F4F8FB;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 0 24px rgba(0, 0, 0, 0.25);
 }
 
 /* Scrollable container with hide scrollbars */
@@ -169,14 +169,9 @@ button:active {
   margin: 0 auto;
 }
 
-/* ───────────────────────── Tablet & desktop (≥ 900px) ───────────────────────── */
-@media (min-width: 900px) {
+/* ─────────── Wide screens: computer, tablet, and phones held sideways (landscape) ─────────── */
+@media (min-width: 900px), (orientation: landscape) and (min-width: 640px) {
   html, body { background-color: #E9F0F5; }
-
-  #root {
-    max-width: none;
-    box-shadow: none;
-  }
 
   .top-bar {
     padding: 12px 28px !important;
@@ -525,7 +520,7 @@ body {
   .est-list { grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
   .est-grid { align-items: start; }
 }
-@media (min-width: 900px) {
+@media (min-width: 900px), (orientation: landscape) and (min-width: 640px) {
   /* the sticky header must sit at the very top, or cards show through the gap above it while scrolling */
   .est-page.screen { padding-top: 0 !important; }
   .est-head { padding-top: 20px; }
@@ -692,4 +687,26 @@ body {
   border-radius: 14px;
   text-align: center;
   box-shadow: 0 8px 24px rgba(15, 41, 58, 0.3);
+}
+
+/* Phones held sideways: little height, so keep the bars compact and the content readable */
+@media (orientation: landscape) and (max-height: 520px) {
+  .top-bar { padding-top: 6px !important; padding-bottom: 6px !important; }
+  .bottom-nav { width: 84px !important; padding: 8px 6px !important; gap: 2px !important; }
+  .bottom-nav .nav-item { padding: 6px 2px !important; }
+  .bottom-nav .nav-pill { width: 48px !important; height: 28px !important; }
+  .screen { padding-top: 12px !important; padding-inline: 16px !important; }
+  .facility-list { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)) !important; }
+  .admin-screen { grid-template-columns: minmax(0, 1fr) !important; }
+  .sheet-panel { max-height: 92dvh !important; }
+  .est-table-wrap { max-height: calc(100dvh - 170px); min-height: 200px; }
+}
+/* Portrait tablets / large phones: still one column of navigation at the bottom, but cards side by side */
+@media (min-width: 600px) and (orientation: portrait) {
+  .facility-list {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 10px !important;
+    align-items: start;
+  }
 }

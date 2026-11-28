@@ -4,7 +4,7 @@
   "description": "تطبيق معاينات منشآت الصرف الصحي - شركة مياه الشرب والصرف الصحي بالمنوفية",
   "start_url": "/",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "theme_color": "#006B9F",
   "background_color": "#F4F8FB",
   "lang": "ar",

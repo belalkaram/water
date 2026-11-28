@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { navigate, routePath, useRoute } from './router';
 import type { ActivityItem, Facility, MonthlyPlan, User } from './types';
 import { api, apiBaseForWorker, getSessionToken, hasSession, isNetworkError, onSessionExpired, setSessionToken } from './api';
 import {
@@ -35,7 +36,10 @@ export default function App() {
   });
   const [sessionNotice, setSessionNotice] = useState('');
 
-  const [tab, setTab] = useState<TabType>('plan');
+  // The page shown comes from the address bar: every page has its own URL (see router.ts)
+  const route = useRoute();
+  const tab: TabType = route.tab === 'admin' && user?.role !== 'admin' ? 'plan' : route.tab;
+  const setTab = (t: TabType) => navigate(routePath({ tab: t }));
   const [plans, setPlans] = useState<MonthlyPlan[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState<string>('');
   const [facilities, setFacilities] = useState<Facility[]>([]);
@@ -304,6 +308,66 @@ export default function App() {
       }
     }
   };
+
+  // ─── keep the address bar and the open sheet / form in step ───────────────────
+  const prevOpen = useRef<{ active?: string; inspect?: string }>({});
+  // state → URL: opening a facility or the inspection form gets its own address; closing goes back to the tab
+  useEffect(() => {
+    if (!user) return;
+    const prev = prevOpen.current;
+    const active = activeFacility?.id;
+    const inspect = inspectingFacility?.id;
+    prevOpen.current = { active, inspect };
+    if (inspect && inspect !== prev.inspect) navigate(routePath({ tab, view: 'inspect', facilityId: inspect }), { replace: !!prev.active });
+    else if (active && active !== prev.active) navigate(routePath({ tab, view: 'facility', facilityId: active }));
+    else if (!active && !inspect && (prev.active || prev.inspect) && (route.view === 'facility' || route.view === 'inspect'))
+      navigate(routePath({ tab }), { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFacility?.id, inspectingFacility?.id]);
+
+  // URL → state: back/forward buttons, a refresh, or a shared link
+  useEffect(() => {
+    if (!user) return;
+    if (route.view !== 'facility' && activeFacility) setActiveFacility(null);
+    if (route.view !== 'inspect' && inspectingFacility) setInspectingFacility(null);
+    if (!route.facilityId) return;
+    const f = facilities.find((x) => x.id === route.facilityId);
+    if (route.view === 'facility' && activeFacility?.id !== route.facilityId) {
+      if (f) setActiveFacility(f);
+      else if (loadedOnce) handleOpenFacilityById(route.facilityId);
+    }
+    if (route.view === 'inspect' && inspectingFacility?.id !== route.facilityId && f) setInspectingFacility(f);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.view, route.facilityId, facilities, loadedOnce, user]);
+
+  // signed out → /login (remember where to go back); signed in → never stay on /login; /admin is for admins only
+  useEffect(() => {
+    if (!user) {
+      if (!route.login) {
+        try {
+          sessionStorage.setItem('after_login', window.location.pathname);
+        } catch {
+          // ignore
+        }
+        navigate('/login', { replace: true });
+      }
+      return;
+    }
+    if (route.login) {
+      let next = '/plan';
+      try {
+        next = sessionStorage.getItem('after_login') || '/plan';
+        sessionStorage.removeItem('after_login');
+      } catch {
+        // ignore
+      }
+      navigate(next === '/login' ? '/plan' : next, { replace: true });
+    } else if (route.tab === 'admin' && user.role !== 'admin') {
+      navigate('/plan', { replace: true });
+    } else if (window.location.pathname === '/') {
+      navigate('/plan', { replace: true });
+    }
+  }, [user, route.login, route.tab]);
 
   if (!user) {
     return <LoginScreen onLogin={handleLogin} notice={sessionNotice} />;

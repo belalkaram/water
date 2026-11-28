@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { api } from '../api';
 import { exportPlanPdf } from '../utils/pdfExport';
 import { EstablishmentsView } from './EstablishmentsView';
+import { navigate, routePath, useRoute } from '../router';
 
 interface Props {
   userCode: string;
@@ -18,7 +19,9 @@ interface Props {
  */
 export const ExportButtons: React.FC<Props> = ({ userCode, planId, center, compact = false }) => {
   const [pdfProgress, setPdfProgress] = useState<number | null>(null);
-  const [showEstablishments, setShowEstablishments] = useState(false);
+  // «عرض المنشآت» has its own address (/plan/establishments, /admin/establishments)
+  const route = useRoute();
+  const showEstablishments = route.view === 'establishments';
 
   const scope = center && center !== 'الكل' ? center : undefined;
 
@@ -70,7 +73,7 @@ export const ExportButtons: React.FC<Props> = ({ userCode, planId, center, compa
         </button>
         <button
           type="button"
-          onClick={() => setShowEstablishments(true)}
+          onClick={() => navigate(routePath({ tab: route.tab, view: 'establishments' }))}
           style={{ ...base, backgroundColor: '#E6F2F8', color: '#006B9F', border: '1px solid #B9DAEA' }}
           title="عرض كل المنشآت المسجلة في السيستم داخل الموقع (للعرض فقط، بدون تحميل)"
         >
@@ -90,7 +93,7 @@ export const ExportButtons: React.FC<Props> = ({ userCode, planId, center, compa
       </div>
       <EstablishmentsView
         isOpen={showEstablishments}
-        onClose={() => setShowEstablishments(false)}
+        onClose={() => navigate(routePath({ tab: route.tab }), { replace: true })}
         userCode={userCode}
         initialCenter={scope}
       />
