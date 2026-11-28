@@ -1,4 +1,4 @@
-import type { ActivityItem, ConflictItem, Facility, MonthlyPlan, NewFacilityInput, PlanReport, PlanStats, User } from './types';
+import type { ActivityItem, Establishment, ConflictItem, Facility, MonthlyPlan, NewFacilityInput, PlanReport, PlanStats, User } from './types';
 
 // Trailing slashes are stripped: «https://host/» + «/api/...» would give «//api», which Vercel
 // answers with a redirect — and browsers refuse redirects on CORS preflight requests.
@@ -207,6 +207,10 @@ export const api = {
     mode: 'keep_history' | 'wipe' = 'keep_history'
   ) =>
     request(`/api/plans/${planId}/bulk-reset`, { method: 'POST', body: JSON.stringify({ target, mode }) }, code),
+
+  /** View-only list of the permanent establishments registry */
+  getEstablishments: (code: string): Promise<{ establishments: Establishment[] }> =>
+    request('/api/establishments', { method: 'GET' }, code),
 
   nextSerial: (code: string, planId: string): Promise<{ next_serial: number }> =>
     request(`/api/plans/${planId}/next-serial`, { method: 'GET' }, code),

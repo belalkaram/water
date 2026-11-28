@@ -25,12 +25,11 @@ const FILE_CENTER = [
 
 const norm = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 
-// Closed = permanently out of service / no sewer discharge.
-// "Closed during the visit" stays in (it must be revisited).
+// Closed = out of service / no sewer discharge.
+// Any status that says "مغلق" counts as closed, including "مغلق اثناء المعاينة" (owner's decision).
 function isClosed(status) {
   const s = norm(status).toLowerCase();
   if (!s) return false;
-  if (s.includes('اثناء') || (s.includes('مغلق') && s.includes('معاينة'))) return false;
   if (s.includes('close')) return true;
   if (s.includes('مغلق') || s.includes('غلق')) return true;
   if (/تغير النشاط|تغيير النشاط|محطة غاز|الغاء|لا ?يوجد صرف|غير مخدوم|لم يتم التوصيل/.test(s)) return true;
@@ -58,6 +57,9 @@ function readFile(file, issues) {
   const center = FILE_CENTER.find(([k]) => file.includes(k))?.[1];
   if (!center) throw new Error('ملف غير معروف المدينة: ' + file);
   const wb = xlsx.readFile(path.join(DOCS, file), { cellDates: true });
+  // A file can hold several establishment sheets (e.g. "صناعى" + "ادمى") — read every one of them.
+  const sheets = [];
+  const out = [];
   for (const sn of wb.SheetNames) {
     const rows = xlsx.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null, raw: true });
     const hi = rows.slice(0, 25).findIndex((r) => {
@@ -72,12 +74,12 @@ function readFile(file, issues) {
       name: col('اسم'), addr: col('عنوان'), code: col('الكود'), status: col('حالة النشاط'), owner: col('صاحب'),
       act: col('النشاط والمواد'), phone: col('وسيلة الاتصال'), last: col('مرور'), water: col('كمية المياه'), unit: col('وحدة المعالجة'),
     };
-    const out = [];
+    const before = out.length;
     for (let r = hi + 1; r < rows.length; r++) {
       const row = rows[r];
       const name = norm(row[ix.name]);
       if (!name) continue;
-      const ctx = `${file} (سطر ${r + 1}) ${name}`;
+      const ctx = `${file} / ${sn} (سطر ${r + 1}) ${name}`;
       const code = norm(row[ix.code]).toUpperCase();
       if (!code) { issues.push(`${ctx}: بدون كود (ترويسة/تذييل صفحة وليست منشأة) — تم تجاهله`); continue; }
       const status = norm(row[ix.status]);
@@ -88,30 +90,48 @@ function readFile(file, issues) {
         address: norm(row[ix.addr]), owner: norm(row[ix.owner]), phone: norm(row[ix.phone]),
         activity: detectActivityType(`${name} ${actText}`) || 'أخرى',
         last: parseDate(row[ix.last], issues, ctx),
-        water: norm(row[ix.water]), unit: norm(row[ix.unit]), file,
+        water: norm(row[ix.water]), unit: norm(row[ix.unit]), file, sheet: sn,
       });
     }
-    return { sheet: sn, rows: out };
+    sheets.push(`${sn}=${out.length - before}`);
   }
-  throw new Error('لم يتم العثور على شيت المنشآت في ' + file);
+  if (!sheets.length) throw new Error('لم يتم العثور على شيت المنشآت في ' + file);
+  return { sheets, center, rows: out };
+}
+
+// One record per code. If the code is closed anywhere (any sheet / file) it is closed;
+// otherwise the first open occurrence is kept.
+function mergeByCode(all, issues) {
+  const groups = new Map();
+  for (const r of all) {
+    if (!groups.has(r.code)) groups.set(r.code, []);
+    groups.get(r.code).push(r);
+  }
+  const merged = [];
+  for (const [code, rows] of groups) {
+    if (rows.length > 1) {
+      const where = rows.map((r) => `${r.file}/${r.sheet} "${r.name}" [${r.status || 'فارغ'}]`).join(' | ');
+      const names = new Set(rows.map((r) => r.name));
+      issues.push(`كود مكرر ${code}${names.size > 1 ? ' (أسماء مختلفة!)' : ''}: ${where}`);
+    }
+    const closed = rows.find((r) => r.closed);
+    merged.push(closed ? { ...rows.find((r) => !r.closed) || closed, closed: true, status: closed.status } : rows[0]);
+  }
+  return merged;
 }
 
 (async () => {
   const issues = [];
   const files = fs.readdirSync(DOCS).filter((f) => /\.xls[xm]?$/i.test(f) && !f.startsWith('~$'));
-  const all = [];
+  const raw = [];
   console.log(`📂 ${files.length} ملف في ${DOCS}${DRY ? ' (dry-run)' : ''}`);
   for (const f of files) {
-    const { sheet, rows } = readFile(f, issues);
+    const { sheets, center, rows } = readFile(f, issues);
     const open = rows.filter((r) => !r.closed);
-    console.log(`  ${rows[0].center.padEnd(24)} شيت "${sheet}": ${rows.length} صف → ${open.length} مفتوح / ${rows.length - open.length} مغلق`);
-    all.push(...rows);
+    console.log(`  ${center.padEnd(24)} شيتات [${sheets.join(', ')}]: ${rows.length} صف → ${open.length} مفتوح / ${rows.length - open.length} مغلق`);
+    raw.push(...rows);
   }
-  const seen = new Set();
-  for (const r of all) {
-    if (seen.has(r.code)) issues.push(`كود مكرر: ${r.code} (${r.file})`);
-    seen.add(r.code);
-  }
+  const all = mergeByCode(raw, issues);
   const open = all.filter((r) => !r.closed);
   const closedStatuses = {};
   all.filter((r) => r.closed).forEach((r) => { closedStatuses[r.status] = (closedStatuses[r.status] || 0) + 1; });
@@ -150,7 +170,7 @@ function readFile(file, issues) {
     );
   }
   for (const r of all.filter((x) => x.closed)) {
-    await run('UPDATE establishments SET is_active = 0 WHERE facility_code = ?', [r.code]);
+    await run('UPDATE establishments SET is_active = 0, status_raw = ? WHERE facility_code = ?', [r.status, r.code]);
   }
 
   // last visit = latest of (Excel baseline, valid inspections made in the system)

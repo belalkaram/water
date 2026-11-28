@@ -40,3 +40,7 @@ pnpm-debug.log*
 *.sw?
 .DS_Store
 Thumbs.db
+
+# Real data (Excel/PDF sources and data exports) — never commit
+original/
+exports/

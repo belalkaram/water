@@ -1085,6 +1085,22 @@ app.get('/api/activity-types', authMiddleware, (req, res) => {
   res.json({ activity_types: ACTIVITY_TYPES });
 });
 
+// View-only list of the permanent establishments registry (including ones employees added).
+// Workers only see the centers assigned to them, same as the plans.
+app.get('/api/establishments', authMiddleware, async (req, res, next) => {
+  try {
+    const scope = centerScope(req.user);
+    const rows = await queryAll(
+      `SELECT facility_code, name, address, center, activity_type, owner, phone, water_qty, treatment_unit,
+              status_raw, is_active, last_visit_date
+       FROM establishments WHERE 1 = 1${scope.sql}
+       ORDER BY center, COALESCE(serial_no, 0), facility_code`,
+      scope.params
+    );
+    res.json({ establishments: rows.map((r) => ({ ...r, is_active: Number(r.is_active) === 1 })) });
+  } catch (err) { next(err); }
+});
+
 app.post('/api/plans/:planId/facilities', authMiddleware, async (req, res, next) => {
   try {
     const { planId } = req.params;

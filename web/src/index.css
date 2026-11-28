@@ -304,3 +304,38 @@ button:active {
     font-size: 13px !important;
   }
 }
+
+/* ─── Long text safety (Arabic names/addresses/cities of any length) ──────
+   A long word or name breaks onto the next line instead of pushing the card,
+   pill or button past its border and out of the phone layout. */
+body {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.text-wrap {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.text-ellipsis {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fb-pill {
+  max-width: 100%;
+  min-width: 0;
+  text-align: right;
+}
+.export-row > button {
+  min-width: 0;
+  overflow: hidden;
+}
+@media (max-width: 380px) {
+  .export-row > button {
+    flex-direction: column;
+    gap: 3px !important;
+  }
+}

@@ -170,3 +170,19 @@ export interface ConflictItem {
   samples: SampleItem[];
   notes: string;
 }
+
+/** A row of the permanent establishments registry (view-only list) */
+export interface Establishment {
+  facility_code: string;
+  name: string;
+  address: string;
+  center: string;
+  activity_type: string;
+  owner: string;
+  phone: string;
+  water_qty: string;
+  treatment_unit: string;
+  status_raw: string;
+  is_active: boolean;
+  last_visit_date: string;
+}

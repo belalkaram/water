@@ -513,8 +513,15 @@
 }
 .fb-dropdowns {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
   gap: 8px;
+}
+/* grid/flex items default to min-width:auto, so a long value (e.g. «قويسنا المنطقة الصناعية»)
+   would widen the box past the card. Let them shrink and show an ellipsis instead. */
+.fb-dropdowns > *,
+.pk-trigger {
+  min-width: 0;
+  max-width: 100%;
 }
 .fb-search {
   display: flex;
@@ -658,7 +665,7 @@
 }
 @media (max-width: 640px) {
   .fb-dropdowns {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
   .fb-dropdowns > :only-child {
     grid-column: 1 / -1;
